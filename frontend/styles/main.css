@@ -966,3 +966,390 @@ body {
 ::-webkit-scrollbar-thumb:hover {
     background: #a0aec0;
 }
+
+/* 可折叠面板 */
+.panel.collapsible {
+    transition: all 0.3s ease;
+    overflow: hidden;
+}
+
+.panel.collapsible.collapsed {
+    height: 60px !important;
+    min-height: 60px;
+}
+
+.panel.collapsible.collapsed .panel-content {
+    display: none;
+}
+
+.panel-header {
+    cursor: pointer;
+    user-select: none;
+    position: relative;
+}
+
+.panel-header:hover {
+    background: var(--bg-color);
+}
+
+.panel-toggle {
+    background: none;
+    border: none;
+    color: var(--gray-color);
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 4px;
+    transition: all 0.3s;
+    margin-left: 8px;
+}
+
+.panel-toggle:hover {
+    background: rgba(0, 0, 0, 0.05);
+    color: var(--primary-color);
+}
+
+.panel-toggle i {
+    transition: transform 0.3s;
+}
+
+.panel.collapsed .panel-toggle i.fa-chevron-down {
+    transform: rotate(-90deg);
+}
+
+/* 面板内容动画 */
+.panel-content {
+    transition: opacity 0.3s, transform 0.3s;
+}
+
+/* ==================== 位置选择器样式 ==================== */
+
+.location-picker {
+    display: flex;
+    gap: 10px;
+    align-items: stretch;
+}
+
+.location-picker input {
+    flex: 1;
+}
+
+#location-pick-btn {
+    padding: 8px 16px;
+    background: var(--primary-color);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: all 0.3s;
+    white-space: nowrap;
+}
+
+#location-pick-btn:hover {
+    background: var(--secondary-color);
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+}
+
+#location-pick-btn.active {
+    background: var(--success-color);
+    animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+    0% {
+        box-shadow: 0 0 0 0 rgba(72, 187, 120, 0.7);
+    }
+    70% {
+        box-shadow: 0 0 0 10px rgba(72, 187, 120, 0);
+    }
+    100% {
+        box-shadow: 0 0 0 0 rgba(72, 187, 120, 0);
+    }
+}
+
+/* 地图标记脉冲动画 */
+@keyframes markerPulse {
+    0% {
+        transform: scale(1);
+        opacity: 1;
+    }
+    50% {
+        transform: scale(1.2);
+        opacity: 0.7;
+    }
+    100% {
+        transform: scale(1);
+        opacity: 1;
+    }
+}
+
+.map-marker.picking {
+    animation: markerPulse 1s infinite;
+}
+
+/* ==================== GeoJSON上传样式 ==================== */
+
+.geojson-upload {
+    border: 2px dashed var(--light-gray);
+    border-radius: 8px;
+    padding: 30px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.3s;
+    background: var(--bg-color);
+}
+
+.geojson-upload:hover {
+    border-color: var(--primary-color);
+    background: white;
+}
+
+.geojson-upload.dragover {
+    border-color: var(--success-color);
+    background: rgba(72, 187, 120, 0.05);
+    transform: scale(1.02);
+}
+
+.geojson-upload i {
+    font-size: 48px;
+    color: var(--gray-color);
+    margin-bottom: 15px;
+    display: block;
+}
+
+.geojson-upload p {
+    color: var(--gray-color);
+    margin: 0;
+    font-size: 14px;
+}
+
+/* ==================== 海拔图表容器 ==================== */
+
+.elevation-chart-container {
+    padding: 20px;
+    background: var(--bg-color);
+    border-radius: 8px;
+    margin-top: 20px;
+}
+
+.elevation-chart-container h4 {
+    margin: 0 0 15px 0;
+    color: var(--dark-color);
+    font-size: 16px;
+}
+
+#elevation-chart {
+    max-height: 200px;
+    width: 100%;
+}
+
+#elevation-preview {
+    animation: slideDown 0.3s ease;
+}
+
+@keyframes slideDown {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* ==================== 响应式布局优化 ==================== */
+
+/* 大屏幕 */
+@media (min-width: 1400px) {
+    .main-layout {
+        grid-template-columns: minmax(400px, 1fr) minmax(400px, 1fr) minmax(380px, 450px);
+    }
+}
+
+/* 中等屏幕 */
+@media (max-width: 1200px) {
+    .main-layout {
+        grid-template-columns: 1fr 1fr;
+        grid-template-rows: auto auto;
+    }
+
+    #items-panel {
+        grid-column: span 2;
+    }
+
+    .panel.collapsed {
+        height: 60px !important;
+    }
+}
+
+/* 小屏幕 */
+@media (max-width: 768px) {
+    .main-layout {
+        grid-template-columns: 1fr;
+        gap: 15px;
+    }
+
+    .panel {
+        margin-bottom: 15px;
+    }
+
+    .form-row {
+        grid-template-columns: 1fr;
+    }
+
+    .location-picker {
+        flex-direction: column;
+    }
+
+    #location-pick-btn {
+        width: 100%;
+    }
+
+    .panel-header h2 {
+        font-size: 18px;
+    }
+
+    .panel-actions {
+        flex-wrap: wrap;
+        gap: 5px;
+    }
+}
+
+/* ==================== 紧凑视图标签 ==================== */
+
+.view-tabs.compact {
+    display: inline-flex;
+    background: var(--bg-color);
+    border-radius: 6px;
+    padding: 2px;
+    margin-right: 10px;
+}
+
+.view-tabs.compact .view-tab {
+    padding: 6px 12px;
+    border: none;
+    background: transparent;
+    color: var(--gray-color);
+    cursor: pointer;
+    border-radius: 4px;
+    transition: all 0.2s;
+    font-size: 13px;
+}
+
+.view-tabs.compact .view-tab:hover {
+    color: var(--dark-color);
+}
+
+.view-tabs.compact .view-tab.active {
+    background: white;
+    color: var(--primary-color);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+/* ==================== 类型特定字段显示控制 ==================== */
+
+.type-specific-fields {
+    animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* ==================== 加载状态优化 ==================== */
+
+.loading {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(255, 255, 255, 0.95);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+}
+
+.spinner {
+    width: 50px;
+    height: 50px;
+    border: 4px solid var(--light-gray);
+    border-top-color: var(--primary-color);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+/* ==================== 折叠状态下的特殊处理 ==================== */
+
+.panel.collapsed .map-container {
+    display: none;
+}
+
+.panel.collapsed .timeline-container {
+    display: none;
+}
+
+.panel.collapsed .gantt-container {
+    display: none;
+}
+
+.panel.collapsed .items-list {
+    display: none;
+}
+
+/* 折叠时保持操作按钮可见 */
+.panel.collapsed .panel-actions {
+    opacity: 0.7;
+}
+
+.panel.collapsed:hover .panel-actions {
+    opacity: 1;
+}
+
+/* ==================== 地图弹出窗口中的海拔图表 ==================== */
+
+.maplibregl-popup-content {
+    padding: 0;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.maplibregl-popup-content canvas {
+    display: block;
+    width: 100%;
+}
+
+/* ==================== 平滑过渡效果 ==================== */
+
+* {
+    transition-property: none;
+}
+
+.panel,
+.panel-header,
+.panel-content,
+.panel-toggle,
+.btn,
+.form-control,
+.filter-chip,
+.item-card,
+.timeline-item,
+.view-tab {
+    transition-property: all;
+    transition-duration: 0.3s;
+    transition-timing-function: ease;
+}

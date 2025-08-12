@@ -1,106 +1,338 @@
 import dayjs from 'dayjs';
+import Chart from 'chart.js/auto';
 
 export class ItemFormComponent {
     constructor(modalId, options = {}) {
-        this.modal = document.getElementById(modalId);
-        this.form = document.getElementById('item-form');
+        this.modalId = modalId;
         this.options = options;
-        this.isOpen = false;
+        this.modal = null;
+        this.form = null;
         this.editingItemId = null;
         this.uploadedImages = [];
-        this.existingRelations = [];
+        this.relatedItems = [];
+        this.isOpen = false;
+        this.isPickingLocation = false;
+        this.geojsonData = null;
+        this.elevationData = null;
+        this.elevationChart = null;
 
         this.init();
     }
 
+    // 初始化
     init() {
-        this.bindEvents();
+        this.modal = document.getElementById(this.modalId);
+        this.form = document.getElementById('item-form');
+
+        this.setupEventListeners();
         this.setupImageUpload();
+        this.setupGeoJSONUpload();
     }
 
-    bindEvents() {
-        // 表单标签切换
+    // 设置事件监听
+    setupEventListeners() {
+        // 表单提交
+        this.form.addEventListener('submit', (e) => {
+            e.preventDefault();
+            this.handleSubmit();
+        });
+
+        // 类型选择变化
+        document.getElementById('item-type').addEventListener('change', (e) => {
+            this.onTypeChange(e.target.value);
+        });
+
+        // 位置选择按钮
+        const locationPickBtn = document.getElementById('location-pick-btn');
+        if (locationPickBtn) {
+            locationPickBtn.addEventListener('click', () => {
+                this.toggleLocationPicker();
+            });
+        }
+
+        // 标签页切换
         document.querySelectorAll('.form-tab').forEach(tab => {
             tab.addEventListener('click', () => {
                 this.switchTab(tab.dataset.tab);
             });
         });
 
-        // 元素类型变更
-        document.getElementById('item-type').addEventListener('change', (e) => {
-            this.onTypeChange(e.target.value);
+        // 关联类型选择
+        document.getElementById('relation-type')?.addEventListener('change', (e) => {
+            this.onRelationTypeChange(e.target.value);
         });
 
-        // 保存按钮
-        document.getElementById('save-item-btn').addEventListener('click', () => {
-            this.save();
-        });
-
-        // 地址输入框联动经纬度
-        document.getElementById('item-address').addEventListener('blur', () => {
-            this.geocodeAddress();
-        });
-
-        // 经纬度输入框联动
-        document.getElementById('item-latitude').addEventListener('change', () => {
-            this.updateAddressFromCoords();
-        });
-
-        document.getElementById('item-longitude').addEventListener('change', () => {
-            this.updateAddressFromCoords();
+        // 添加关联按钮
+        document.getElementById('add-relation-btn')?.addEventListener('click', () => {
+            this.addRelation();
         });
     }
 
+    // 设置图片上传
     setupImageUpload() {
         const uploadArea = document.getElementById('upload-area');
-        const fileInput = document.getElementById('file-input');
+        const fileInput = document.getElementById('image-input');
 
-        if (uploadArea && fileInput) {
-            uploadArea.addEventListener('click', () => fileInput.click());
+        if (!uploadArea || !fileInput) return;
 
-            uploadArea.addEventListener('dragover', (e) => {
-                e.preventDefault();
-                uploadArea.classList.add('dragging');
-            });
+        uploadArea.addEventListener('click', () => fileInput.click());
 
-            uploadArea.addEventListener('dragleave', () => {
-                uploadArea.classList.remove('dragging');
-            });
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('dragging');
+        });
 
-            uploadArea.addEventListener('drop', (e) => {
-                e.preventDefault();
-                uploadArea.classList.remove('dragging');
-                this.handleFiles(e.dataTransfer.files);
-            });
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.classList.remove('dragging');
+        });
 
-            fileInput.addEventListener('change', (e) => {
-                this.handleFiles(e.target.files);
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('dragging');
+            this.handleImageFiles(e.dataTransfer.files);
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            this.handleImageFiles(e.target.files);
+        });
+    }
+
+    // 设置GeoJSON上传
+    setupGeoJSONUpload() {
+        const uploadArea = document.getElementById('geojson-upload');
+        const fileInput = document.getElementById('geojson-file');
+
+        if (!uploadArea || !fileInput) return;
+
+        uploadArea.addEventListener('click', () => fileInput.click());
+
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('dragover');
+        });
+
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.classList.remove('dragover');
+        });
+
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('dragover');
+            this.handleGeoJSONFile(e.dataTransfer.files[0]);
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            this.handleGeoJSONFile(e.target.files[0]);
+        });
+    }
+
+    // 处理GeoJSON文件
+    handleGeoJSONFile(file) {
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            try {
+                const geojson = JSON.parse(e.target.result);
+                this.processGeoJSON(geojson);
+            } catch (error) {
+                alert('GeoJSON文件格式错误');
+            }
+        };
+        reader.readAsText(file);
+    }
+
+    // 处理GeoJSON数据
+    processGeoJSON(geojson) {
+        if (geojson.type === 'FeatureCollection' && geojson.features.length > 0) {
+            const feature = geojson.features[0];
+            if (feature.geometry.type === 'LineString') {
+                this.geojsonData = geojson;
+                const coordinates = feature.geometry.coordinates;
+
+                // 提取海拔数据
+                this.elevationData = this.extractElevationData(coordinates);
+
+                // 显示海拔图表
+                if (this.elevationData.length > 0) {
+                    this.showElevationChart();
+                }
+
+                // 显示成功提示
+                const uploadArea = document.getElementById('geojson-upload');
+                uploadArea.innerHTML = `
+                    <i class="fas fa-check-circle" style="font-size: 32px; color: var(--success-color); margin-bottom: 10px;"></i>
+                    <p>轨迹已导入（${coordinates.length}个点）</p>
+                    <button type="button" class="btn btn-sm btn-secondary" onclick="this.parentElement.click()">重新选择</button>
+                `;
+
+                // 在地图上显示轨迹（如果地图组件可用）
+                if (window.mapComponent) {
+                    window.mapComponent.addRoute(geojson);
+                }
+            }
+        }
+    }
+
+    // 提取海拔数据
+    extractElevationData(coordinates) {
+        const data = [];
+        let totalDistance = 0;
+
+        for (let i = 0; i < coordinates.length; i++) {
+            if (i > 0) {
+                totalDistance += this.calculateDistance(
+                    coordinates[i - 1],
+                    coordinates[i]
+                );
+            }
+
+            data.push({
+                distance: totalDistance,
+                elevation: coordinates[i][2] || 0 // 第三个值是海拔
             });
         }
+
+        return data;
+    }
+
+    // 计算两点间距离（公里）
+    calculateDistance(coord1, coord2) {
+        const lat1 = coord1[1] * Math.PI / 180;
+        const lat2 = coord2[1] * Math.PI / 180;
+        const deltaLat = (coord2[1] - coord1[1]) * Math.PI / 180;
+        const deltaLng = (coord2[0] - coord1[0]) * Math.PI / 180;
+
+        const a = Math.sin(deltaLat / 2) * Math.sin(deltaLat / 2) +
+            Math.cos(lat1) * Math.cos(lat2) *
+            Math.sin(deltaLng / 2) * Math.sin(deltaLng / 2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        const d = 6371 * c; // 地球半径（公里）
+
+        return d;
+    }
+
+    // 显示海拔图表
+    showElevationChart() {
+        const preview = document.getElementById('elevation-preview');
+        if (!preview) return;
+
+        preview.style.display = 'block';
+
+        const canvas = document.getElementById('elevation-chart');
+        if (!canvas) return;
+
+        // 销毁已存在的图表
+        if (this.elevationChart) {
+            this.elevationChart.destroy();
+        }
+
+        const ctx = canvas.getContext('2d');
+        this.elevationChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: this.elevationData.map(d => `${d.distance.toFixed(1)}km`),
+                datasets: [{
+                    label: '海拔（米）',
+                    data: this.elevationData.map(d => d.elevation),
+                    borderColor: '#667eea',
+                    backgroundColor: 'rgba(102, 126, 234, 0.1)',
+                    fill: true,
+                    tension: 0.4,
+                    pointRadius: 1,
+                    pointHoverRadius: 4
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        display: false
+                    },
+                    tooltip: {
+                        callbacks: {
+                            title: (context) => `距离: ${context[0].label}`,
+                            label: (context) => `海拔: ${context.parsed.y.toFixed(0)}m`
+                        }
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: false,
+                        title: {
+                            display: true,
+                            text: '海拔（米）'
+                        }
+                    },
+                    x: {
+                        title: {
+                            display: true,
+                            text: '距离'
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    // 切换位置选择器
+    toggleLocationPicker() {
+        this.isPickingLocation = !this.isPickingLocation;
+        const btn = document.getElementById('location-pick-btn');
+
+        if (this.options.onLocationPick) {
+            const isActive = this.options.onLocationPick();
+
+            if (isActive) {
+                btn.classList.add('active');
+                btn.innerHTML = '<i class="fas fa-times"></i> 取消选点';
+            } else {
+                btn.classList.remove('active');
+                btn.innerHTML = '<i class="fas fa-map-marker-alt"></i> 地图选点';
+            }
+        }
+    }
+
+    // 设置位置
+    setLocation(lngLat) {
+        const { lng, lat } = lngLat;
+        document.getElementById('item-latitude').value = lat.toFixed(6);
+        document.getElementById('item-longitude').value = lng.toFixed(6);
+        document.getElementById('item-address').value = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+
+        // 重置选择器状态
+        const btn = document.getElementById('location-pick-btn');
+        btn.classList.remove('active');
+        btn.innerHTML = '<i class="fas fa-map-marker-alt"></i> 地图选点';
+        this.isPickingLocation = false;
     }
 
     // 打开表单
-    open(item = null) {
-        this.isOpen = true;
+    async open(item = null) {
         this.editingItemId = item ? item.id : null;
+        this.isOpen = true;
+        this.uploadedImages = [];
+        this.geojsonData = null;
+        this.elevationData = null;
 
         // 重置表单
         this.form.reset();
-        this.uploadedImages = [];
-        this.existingRelations = [];
-        this.renderImagePreview();
+        this.resetFormState();
 
         // 设置标题
-        document.getElementById('item-modal-title').textContent = item ? '编辑旅游元素' : '添加旅游元素';
+        document.getElementById('modal-title').textContent = item ? '编辑旅游元素' : '添加旅游元素';
 
-        // 如果是编辑模式，填充数据
+        // 如果是编辑模式，填充表单
         if (item) {
             this.fillForm(item);
-            this.loadRelations(item.id);
         }
 
-        // 加载可关联的元素
-        this.loadRelatedItems();
+        // 加载关联元素列表
+        if (this.options.onLoadRelatedItems) {
+            this.relatedItems = await this.options.onLoadRelatedItems();
+            this.updateRelatedItemsList();
+        }
 
         // 显示模态框
         this.modal.classList.add('active');
@@ -111,111 +343,225 @@ export class ItemFormComponent {
 
     // 关闭表单
     close() {
-        this.isOpen = false;
         this.modal.classList.remove('active');
+        this.isOpen = false;
         this.editingItemId = null;
         this.uploadedImages = [];
-        this.existingRelations = [];
+        this.geojsonData = null;
+        this.elevationData = null;
+
+        // 重置位置选择器
+        this.isPickingLocation = false;
+        const btn = document.getElementById('location-pick-btn');
+        if (btn) {
+            btn.classList.remove('active');
+            btn.innerHTML = '<i class="fas fa-map-marker-alt"></i> 地图选点';
+        }
+
+        // 清除地图上的临时路线
+        if (window.mapComponent) {
+            window.mapComponent.removeRoute();
+        }
+
+        // 销毁图表
+        if (this.elevationChart) {
+            this.elevationChart.destroy();
+            this.elevationChart = null;
+        }
     }
 
-    // 填充表单数据
+    // 重置表单状态
+    resetFormState() {
+        // 隐藏所有特定类型的字段
+        document.querySelectorAll('.type-specific-fields').forEach(fields => {
+            fields.style.display = 'none';
+        });
+
+        // 重置上传区域
+        const uploadArea = document.getElementById('upload-area');
+        if (uploadArea) {
+            uploadArea.innerHTML = `
+                <i class="fas fa-cloud-upload-alt"></i>
+                <p>拖拽图片到此处或点击上传</p>
+            `;
+        }
+
+        const geojsonUpload = document.getElementById('geojson-upload');
+        if (geojsonUpload) {
+            geojsonUpload.innerHTML = `
+                <i class="fas fa-cloud-upload-alt" style="font-size: 32px; color: var(--gray-color); margin-bottom: 10px;"></i>
+                <p>拖拽GeoJSON文件到此处或点击选择</p>
+            `;
+        }
+
+        // 隐藏海拔预览
+        const elevationPreview = document.getElementById('elevation-preview');
+        if (elevationPreview) {
+            elevationPreview.style.display = 'none';
+        }
+
+        // 清空关联列表
+        const relationsList = document.getElementById('relations-list');
+        if (relationsList) {
+            relationsList.innerHTML = '';
+        }
+    }
+
+    // 填充表单
     fillForm(item) {
         // 基本信息
         document.getElementById('item-type').value = item.item_type || '';
         document.getElementById('item-name').value = item.name || '';
         document.getElementById('item-description').value = item.description || '';
 
-        // 时间信息
+        // 处理时间 - 转换为本地时间格式
         if (item.start_datetime) {
-            document.getElementById('item-start-time').value = dayjs(item.start_datetime).format('YYYY-MM-DDTHH:mm');
+            const startTime = item.start_datetime.replace('Z', '').substring(0, 16);
+            document.getElementById('item-start-time').value = startTime;
         }
         if (item.end_datetime) {
-            document.getElementById('item-end-time').value = dayjs(item.end_datetime).format('YYYY-MM-DDTHH:mm');
+            const endTime = item.end_datetime.replace('Z', '').substring(0, 16);
+            document.getElementById('item-end-time').value = endTime;
         }
 
-        // 其他信息
         document.getElementById('item-cost').value = item.cost || '';
         document.getElementById('item-priority').value = item.priority || 3;
-        document.getElementById('item-address').value = item.address || '';
-        document.getElementById('item-latitude').value = item.latitude || '';
-        document.getElementById('item-longitude').value = item.longitude || '';
 
-        // 触发类型变更以显示对应的详细信息表单
+        // 位置信息
+        if (item.latitude && item.longitude) {
+            document.getElementById('item-latitude').value = item.latitude;
+            document.getElementById('item-longitude').value = item.longitude;
+        }
+        document.getElementById('item-address').value = item.address || '';
+
+        // 触发类型变化事件
         this.onTypeChange(item.item_type);
 
-        // 填充详细信息
-        if (item.details) {
-            this.fillDetails(item.item_type, item.details);
+        // 填充类型特定字段
+        this.fillTypeSpecificFields(item);
+
+        // 加载图片
+        if (item.images && item.images.length > 0) {
+            this.uploadedImages = item.images.map(url => ({ url, uploaded: true }));
+            this.updateImagePreview();
         }
 
-        // 填充图片
-        if (item.images && item.images.length > 0) {
-            this.uploadedImages = item.images.map(url => ({ url, existing: true }));
-            this.renderImagePreview();
+        // 加载GeoJSON数据
+        if (item.properties?.geojson) {
+            this.geojsonData = item.properties.geojson;
+            this.elevationData = item.properties.elevation_profile || [];
+            if (this.elevationData.length > 0) {
+                this.showElevationChart();
+            }
+        }
+
+        // 加载关联
+        if (item.relations) {
+            this.displayRelations(item.relations);
         }
     }
 
-    // 填充详细信息
-    fillDetails(type, details) {
-        switch (type) {
+    // 填充类型特定字段
+    fillTypeSpecificFields(item) {
+        if (!item.details) return;
+
+        switch (item.item_type) {
             case 'accommodation':
-                if (details.hotel_name) document.getElementById('hotel-name').value = details.hotel_name;
-                if (details.room_type) document.getElementById('room-type').value = details.room_type;
-                if (details.check_in_time) document.getElementById('check-in-time').value = details.check_in_time;
-                if (details.check_out_time) document.getElementById('check-out-time').value = details.check_out_time;
-                if (details.booking_platform) document.getElementById('booking-platform').value = details.booking_platform;
-                if (details.booking_number) document.getElementById('booking-number').value = details.booking_number;
+                if (item.accommodation_details) {
+                    document.getElementById('hotel-name').value = item.accommodation_details.hotel_name || '';
+                    document.getElementById('room-type').value = item.accommodation_details.room_type || '';
+                    document.getElementById('check-in-time').value = item.accommodation_details.check_in_time || '';
+                    document.getElementById('check-out-time').value = item.accommodation_details.check_out_time || '';
+                    document.getElementById('booking-platform').value = item.accommodation_details.booking_platform || '';
+                    document.getElementById('booking-number').value = item.accommodation_details.booking_number || '';
+                }
                 break;
 
             case 'transport':
-                if (details.transport_type) document.getElementById('transport-type').value = details.transport_type;
-                if (details.carrier_name) document.getElementById('carrier-name').value = details.carrier_name;
-                if (details.departure_location) document.getElementById('departure-location').value = details.departure_location;
-                if (details.arrival_location) document.getElementById('arrival-location').value = details.arrival_location;
+                if (item.transport_details) {
+                    document.getElementById('transport-type').value = item.transport_details.transport_type || '';
+                    document.getElementById('carrier-name').value = item.transport_details.carrier_name || '';
+                    document.getElementById('departure-location').value = item.transport_details.departure_location || '';
+                    document.getElementById('arrival-location').value = item.transport_details.arrival_location || '';
+                }
                 break;
 
             case 'attraction':
             case 'photo_spot':
-                if (details.attraction_type) document.getElementById('attraction-type').value = details.attraction_type;
-                if (details.ticket_price) document.getElementById('ticket-price').value = details.ticket_price;
-                if (details.best_visit_time) document.getElementById('best-visit-time').value = details.best_visit_time;
-                if (details.recommended_duration) document.getElementById('recommended-duration').value = details.recommended_duration;
-                if (details.photography_tips) document.getElementById('photography-tips').value = details.photography_tips;
+                if (item.attraction_details) {
+                    document.getElementById('attraction-type').value = item.attraction_details.attraction_type || '';
+                    document.getElementById('ticket-price').value = item.attraction_details.ticket_price || '';
+                    document.getElementById('best-visit-time').value = item.attraction_details.best_visit_time || '';
+                    document.getElementById('recommended-duration').value = item.attraction_details.recommended_duration || '';
+                    document.getElementById('photography-tips').value = item.attraction_details.photography_tips || '';
+                }
                 break;
         }
     }
 
-    // 保存表单
-    async save() {
-        // 表单验证
-        if (!this.validate()) {
+    // 类型变化处理
+    onTypeChange(type) {
+        // 隐藏所有特定字段
+        document.querySelectorAll('.type-specific-fields').forEach(fields => {
+            fields.style.display = 'none';
+        });
+
+        // 显示对应类型的字段
+        const fieldsId = `${type}-fields`;
+        const fields = document.getElementById(fieldsId);
+        if (fields) {
+            fields.style.display = 'block';
+        }
+
+        // 特殊处理交通类型
+        if (type === 'transport') {
+            const transportFields = document.getElementById('transport-geojson-fields');
+            if (transportFields) {
+                transportFields.style.display = 'block';
+            }
+        }
+    }
+
+    // 切换标签页
+    switchTab(tabName) {
+        // 更新标签状态
+        document.querySelectorAll('.form-tab').forEach(tab => {
+            tab.classList.toggle('active', tab.dataset.tab === tabName);
+        });
+
+        // 切换内容
+        document.querySelectorAll('.form-section').forEach(section => {
+            section.classList.toggle('active', section.dataset.section === tabName);
+        });
+    }
+
+    // 处理表单提交
+    async handleSubmit() {
+        if (!this.validateForm()) {
             return;
         }
 
-        // 收集数据
         const data = this.collectFormData();
 
-        // 调用保存回调
         if (this.options.onSave) {
             await this.options.onSave(data);
         }
     }
 
-    // 表单验证
-    validate() {
-        const errors = [];
-
-        // 必填字段验证
-        const itemType = document.getElementById('item-type').value;
-        const itemName = document.getElementById('item-name').value;
+    // 验证表单
+    validateForm() {
+        const name = document.getElementById('item-name').value;
+        const type = document.getElementById('item-type').value;
         const startTime = document.getElementById('item-start-time').value;
         const endTime = document.getElementById('item-end-time').value;
 
-        if (!itemType) {
+        const errors = [];
+
+        if (!type) {
             errors.push('请选择元素类型');
         }
 
-        if (!itemName.trim()) {
+        if (!name) {
             errors.push('请输入名称');
         }
 
@@ -263,6 +609,12 @@ export class ItemFormComponent {
             data.duration_hours = duration;
         }
 
+        // 添加GeoJSON数据
+        if (this.geojsonData) {
+            data.geojson_data = this.geojsonData;
+            data.elevation_data = this.elevationData;
+        }
+
         // 收集详细信息
         data.details = this.collectDetails(data.item_type);
 
@@ -304,24 +656,23 @@ export class ItemFormComponent {
                     recommended_duration: parseFloat(document.getElementById('recommended-duration')?.value) || null,
                     photography_tips: document.getElementById('photography-tips')?.value || null
                 };
-        }
 
-        return details;
+            default:
+                return null;
+        }
     }
 
     // 收集关联信息
     collectRelations() {
-        const relatedItems = document.getElementById('related-items');
-        const relationType = document.getElementById('relation-type').value;
-        const selectedItems = Array.from(relatedItems.selectedOptions).map(opt => opt.value);
-
         const relations = [];
-        selectedItems.forEach(targetId => {
-            relations.push({
-                source_item_id: this.editingItemId,
-                target_item_id: targetId,
-                relation_type: relationType
-            });
+        const relationElements = document.querySelectorAll('.relation-item');
+
+        relationElements.forEach(el => {
+            const type = el.dataset.type;
+            const targetId = el.dataset.targetId;
+            if (type && targetId) {
+                relations.push({ type, target_id: targetId });
+            }
         });
 
         return relations;
