@@ -18,7 +18,7 @@ const appState = {
     travelItems: [],
     selectedItem: null,
     filterType: 'all',
-    isPickingLocation: false  // 新增：位置选择状态
+    isPickingLocation: false
 };
 
 // 服务实例
@@ -118,72 +118,72 @@ function initComponents() {
     });
 }
 
-// 格式化时间为ISO 8601格式
-function formatDateTime(datetime) {
-    if (!datetime) return null;
-
-    // 移除可能存在的时区标记
-    datetime = datetime.replace('Z', '').replace('+00:00', '');
-
-    // 如果是YYYY-MM-DDTHH:mm格式，添加秒
-    if (datetime.length === 16) {
-        datetime = datetime + ':00';
-    }
-
-    // 如果是YYYY-MM-DDTHH:mm:ss格式，添加时区
-    if (datetime.length === 19) {
-        datetime = datetime + 'Z';
-    }
-
-    // 验证并返回
-    try {
-        const date = new Date(datetime);
-        if (isNaN(date.getTime())) {
-            throw new Error('Invalid date');
-        }
-        return date.toISOString();
-    } catch (error) {
-        console.error('时间格式化错误:', error);
-        return datetime + 'Z'; // 尝试直接添加时区
-    }
-}
-
 // 绑定事件
 function bindEvents() {
-    // 用户相关
-    document.getElementById('logout-btn').addEventListener('click', handleLogout);
-    document.getElementById('login-form').addEventListener('submit', handleLogin);
-    document.getElementById('register-form').addEventListener('submit', handleRegister);
-
-    // 计划相关
-    document.getElementById('create-plan-btn').addEventListener('click', () => {
-        document.getElementById('plan-modal').classList.add('active');
+    // 登录表单
+    document.getElementById('login-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        await handleLogin();
     });
 
+    // 注册表单
+    document.getElementById('register-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        await handleRegister();
+    });
+
+    // 登录/注册切换
+    document.getElementById('show-register').addEventListener('click', (e) => {
+        e.preventDefault();
+        document.getElementById('login-modal').classList.remove('active');
+        document.getElementById('register-modal').classList.add('active');
+    });
+
+    document.getElementById('show-login').addEventListener('click', (e) => {
+        e.preventDefault();
+        document.getElementById('register-modal').classList.remove('active');
+        document.getElementById('login-modal').classList.add('active');
+    });
+
+    // 退出登录
+    document.getElementById('logout-btn').addEventListener('click', handleLogout);
+
+    // 计划选择
     document.getElementById('plan-select').addEventListener('change', async (e) => {
         if (e.target.value) {
             await loadPlan(e.target.value);
         }
     });
 
-    document.getElementById('plan-form').addEventListener('submit', handleCreatePlan);
+    // 创建计划
+    document.getElementById('create-plan-btn').addEventListener('click', () => {
+        showPlanModal();
+    });
+
+    document.getElementById('save-plan-btn').addEventListener('click', async () => {
+        await savePlan();
+    });
 
     // 元素相关
     document.getElementById('add-item-btn').addEventListener('click', () => {
+        if (!appState.currentPlan) {
+            showToast('请先选择或创建一个计划', 'warning');
+            return;
+        }
         itemFormComponent.open();
-    });
-
-    // 过滤器
-    document.querySelectorAll('.filter-chip').forEach(chip => {
-        chip.addEventListener('click', () => {
-            filterItems(chip.dataset.type);
-        });
     });
 
     // 视图切换
     document.querySelectorAll('.view-tab').forEach(tab => {
         tab.addEventListener('click', () => {
             switchView(tab.dataset.view);
+        });
+    });
+
+    // 类型过滤
+    document.querySelectorAll('.filter-chip').forEach(chip => {
+        chip.addEventListener('click', () => {
+            filterItems(chip.dataset.type);
         });
     });
 
@@ -338,6 +338,35 @@ async function loadPlans() {
     }
 }
 
+// 加载计划详情
+async function loadPlan(planId) {
+    try {
+        showLoading(true);
+
+        // 获取计划详情
+        const plan = await planService.getPlan(planId);
+        appState.currentPlan = plan;
+
+        // 获取计划的所有元素
+        const items = await itemService.getItems(planId);
+        appState.travelItems = items;
+
+        // 更新所有视图
+        updateAllViews();
+
+        // 适应地图边界
+        if (items.length > 0) {
+            mapComponent.fitBounds(items);
+        }
+
+        showToast('计划加载成功', 'success');
+    } catch (error) {
+        showToast('加载计划失败', 'error');
+    } finally {
+        showLoading(false);
+    }
+}
+
 // 保存计划
 async function savePlan() {
     const planData = {
@@ -474,42 +503,7 @@ async function saveItem(itemData) {
     }
 }
 
-// 加载计划
-async function loadPlan(planId) {
-    try {
-        showLoading(true);
 
-        // 获取计划详情
-        const plan = await planService.getPlan(planId);
-        appState.currentPlan = plan;
-
-        // 获取计划的所有元素
-        const items = await itemService.getItems(planId);
-        appState.travelItems = items;
-
-        // 更新所有视图
-        updateAllViews();
-
-        // 适应地图边界
-        if (items.length > 0) {
-            mapComponent.fitBounds(items);
-        }
-
-        showToast('计划加载成功', 'success');
-    } catch (error) {
-        showToast('加载计划失败', 'error');
-    } finally {
-        showLoading(false);
-    }
-}
-
-// 更新所有视图
-function updateAllViews() {
-    mapComponent.updateMarkers(appState.travelItems);
-    timelineComponent.update(appState.travelItems);
-    ganttComponent.update(appState.travelItems);
-    renderItemsList();
-}
 
 // 选择元素
 function selectItem(itemId) {
@@ -526,6 +520,57 @@ function selectItem(itemId) {
     }
 }
 
+// 更新元素时间
+async function updateItemTime(itemId, startTime, endTime) {
+    try {
+        await itemService.updateItem(itemId, {
+            start_datetime: startTime.toISOString(),
+            end_datetime: endTime.toISOString()
+        });
+
+        // 更新本地数据
+        const item = appState.travelItems.find(i => i.id === itemId);
+        if (item) {
+            item.start_datetime = startTime.toISOString();
+            item.end_datetime = endTime.toISOString();
+        }
+
+        // 检查关联约束
+        await checkRelationConstraints(itemId);
+
+        // 更新视图
+        updateAllViews();
+
+        showToast('时间更新成功', 'success');
+    } catch (error) {
+        showToast('更新失败', 'error');
+        // 恢复原始时间
+        await loadPlan(appState.currentPlan.id);
+    }
+}
+
+// 检查关联约束
+async function checkRelationConstraints(itemId) {
+    const relations = await itemService.getRelations(itemId);
+
+    // 检查"需要"类型的关联
+    const requiresRelations = relations.filter(r => r.relation_type === 'requires');
+
+    for (const relation of requiresRelations) {
+        const sourceItem = appState.travelItems.find(i => i.id === relation.source_item_id);
+        const targetItem = appState.travelItems.find(i => i.id === relation.target_item_id);
+
+        if (sourceItem && targetItem) {
+            const sourceEnd = new Date(sourceItem.end_datetime);
+            const targetStart = new Date(targetItem.start_datetime);
+
+            if (sourceEnd > targetStart) {
+                showToast(`警告：${sourceItem.name} 需要在 ${targetItem.name} 之前完成`, 'warning');
+            }
+        }
+    }
+}
+
 // 编辑元素
 function editItem(itemId) {
     const item = appState.travelItems.find(i => i.id === itemId);
@@ -537,6 +582,19 @@ function editItem(itemId) {
         // 更新列表
         renderItemsList();
     }
+}
+
+// 过滤元素
+function filterItems(type) {
+    appState.filterType = type;
+
+    // 更新过滤按钮状态
+    document.querySelectorAll('.filter-chip').forEach(chip => {
+        chip.classList.toggle('active', chip.dataset.type === type);
+    });
+
+    // 更新列表
+    renderItemsList();
 }
 
 // 切换视图
@@ -764,15 +822,39 @@ function showPlanModal() {
 }
 
 // 显示加载指示器
-
-// 显示/隐藏加载状态
 function showLoading(show) {
-    const loader = document.getElementById('loading');
-    if (loader) {
-        loader.style.display = show ? 'flex' : 'none';
-    }
+    document.getElementById('loading').style.display = show ? 'flex' : 'none';
 }
 
+// 格式化时间为ISO 8601格式
+function formatDateTime(datetime) {
+    if (!datetime) return null;
+
+    // 移除可能存在的时区标记
+    datetime = datetime.replace('Z', '').replace('+00:00', '');
+
+    // 如果是YYYY-MM-DDTHH:mm格式，添加秒
+    if (datetime.length === 16) {
+        datetime = datetime + ':00';
+    }
+
+    // 如果是YYYY-MM-DDTHH:mm:ss格式，添加时区
+    if (datetime.length === 19) {
+        datetime = datetime + 'Z';
+    }
+
+    // 验证并返回
+    try {
+        const date = new Date(datetime);
+        if (isNaN(date.getTime())) {
+            throw new Error('Invalid date');
+        }
+        return date.toISOString();
+    } catch (error) {
+        console.error('时间格式化错误:', error);
+        return datetime + 'Z'; // 尝试直接添加时区
+    }
+}
 // 导出给全局使用
 window.app = {
     editItem,

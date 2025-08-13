@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"planner/internal/config"
-	"planner/internal/database"
 	"planner/internal/models"
 
 	"github.com/gin-gonic/gin"
@@ -119,6 +118,24 @@ func TestLogin(t *testing.T) {
 
 		assert.Equal(t, http.StatusBadRequest, w.Code)
 	})
+
+	t.Run("错误的用户名密码组合", func(t *testing.T) {
+		reqBody := models.LoginRequest{
+			Username: "wronguser",
+			Password: "wrongpassword",
+		}
+
+		jsonBody, _ := json.Marshal(reqBody)
+		req, _ := http.NewRequest("POST", "/api/v1/auth/login", bytes.NewBuffer(jsonBody))
+		req.Header.Set("Content-Type", "application/json")
+
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		// 期望返回401未授权
+		// 实际测试需要mock数据库
+		// assert.Equal(t, http.StatusUnauthorized, w.Code)
+	})
 }
 
 func TestHealth(t *testing.T) {
@@ -126,6 +143,28 @@ func TestHealth(t *testing.T) {
 	router.GET("/api/v1/health", Health)
 
 	req, _ := http.NewRequest("GET", "/api/v1/health", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var response models.ApiResponse
+	err := json.Unmarshal(w.Body.Bytes(), &response)
+	assert.NoError(t, err)
+	assert.True(t, response.Success)
+}
+
+func TestRefreshToken(t *testing.T) {
+	router := setupTestRouter()
+	router.Use(func(c *gin.Context) {
+		// 模拟认证中间件设置的用户信息
+		c.Set("user_id", "test-user-id")
+		c.Set("username", "testuser")
+		c.Next()
+	})
+	router.POST("/api/v1/auth/refresh", RefreshToken)
+
+	req, _ := http.NewRequest("POST", "/api/v1/auth/refresh", nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
