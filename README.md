@@ -49,12 +49,15 @@ planner/
 
 ### 0. 快速环境
 ```bash
-docker run -p 5432:5432 -d -e POSTGRES_PASSWORD=password --name pg postgres
-docker run -p 6379:6379 -d redis
+docker rm -f pg rds
+docker run -p 5432:5432 -d -e POSTGRES_PASSWORD=password -v $(pwd):/data --name pg postgres
+docker run -p 6379:6379 -d --name rds redis
 docker exec -it pg /bin/bash
 psql -U postgres
 CREATE DATABASE daocheng_travel;
 \q
+// 运行后端程序创建相应表后执行
+/data/dataimport.bash
 ```
 
 ### 1. 环境要求

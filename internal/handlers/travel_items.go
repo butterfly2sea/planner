@@ -123,7 +123,7 @@ func GetTravelItems(c *gin.Context) {
 	itemType := c.Query("type")
 	date := c.Query("date")
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "50"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "100"))
 
 	if page < 1 {
 		page = 1

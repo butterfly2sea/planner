@@ -1,23 +1,21 @@
-import { apiClient } from '../api/index.js';
+import {apiClient} from '../api/index.js';
 
 export class AuthService {
     // 登录
     async login(username, password) {
-        const response = await apiClient.post('/auth/login', {
+        return await apiClient.post('/auth/login', {
             username,
             password
         });
-        return response;
     }
 
     // 注册
     async register(username, email, password) {
-        const response = await apiClient.post('/auth/register', {
+        return await apiClient.post('/auth/register', {
             username,
             email,
             password
         });
-        return response;
     }
 
     // 退出登录
@@ -32,20 +30,17 @@ export class AuthService {
 
     // 获取用户资料
     async getProfile() {
-        const response = await apiClient.get('/auth/profile');
-        return response;
+        return await apiClient.get('/auth/profile');
     }
 
     // 更新用户资料
     async updateProfile(data) {
-        const response = await apiClient.put('/auth/profile', data);
-        return response;
+        return await apiClient.put('/auth/profile', data);
     }
 
     // 刷新令牌
     async refreshToken() {
-        const response = await apiClient.post('/auth/refresh');
-        return response;
+        return await apiClient.post('/auth/refresh');
     }
 
     // 检查是否已登录

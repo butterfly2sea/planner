@@ -92,6 +92,7 @@ function initComponents() {
             await updateItemTime(task.id, start, end);
         },
         onProgressChange: async (task, progress) => {
+            // TODO: 待补充
             // 处理进度更新
         }
     });
@@ -344,12 +345,11 @@ async function loadPlan(planId) {
         showLoading(true);
 
         // 获取计划详情
-        const plan = await planService.getPlan(planId);
-        appState.currentPlan = plan;
+        appState.currentPlan = await planService.getPlan(planId);
 
         // 获取计划的所有元素
         const items = await itemService.getItems(planId);
-        appState.travelItems = items;
+        appState.travelItems = items.items;
 
         // 更新所有视图
         updateAllViews();
@@ -823,7 +823,7 @@ function showPlanModal() {
 
 // 显示加载指示器
 function showLoading(show) {
-    document.getElementById('loading').style.display = show ? 'flex' : 'none';
+    // document.getElementById('loading').style.display = show ? 'flex' : 'none';
 }
 
 // 格式化时间为ISO 8601格式

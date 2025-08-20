@@ -331,7 +331,7 @@ export class ItemFormComponent {
         // 加载关联元素列表
         if (this.options.onLoadRelatedItems) {
             this.relatedItems = await this.options.onLoadRelatedItems();
-            this.updateRelatedItemsList();
+            await this.loadRelatedItems();
         }
 
         // 显示模态框
