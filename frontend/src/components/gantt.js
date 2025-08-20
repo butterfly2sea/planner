@@ -1,6 +1,8 @@
 import Gantt from 'frappe-gantt';
 import dayjs from 'dayjs';
 
+const modes = ['Quarter Day', 'Half Day', 'Day', 'Week', 'Month'];
+
 export class GanttComponent {
     constructor(containerId, options = {}) {
         this.container = document.getElementById(containerId);
@@ -21,7 +23,7 @@ export class GanttComponent {
         // 清空容器
         this.container.innerHTML = '';
 
-        if (this.items.length === 0) {
+        if (this.items?.length === 0) {
             this.container.innerHTML = '<div class="empty-state">暂无行程安排</div>';
             return;
         }
@@ -33,25 +35,22 @@ export class GanttComponent {
             this.container.innerHTML = '<div class="empty-state">没有设置时间的元素</div>';
             return;
         }
-
-        // 创建SVG容器
-        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-        svg.setAttribute('id', 'gantt-svg');
-        this.container.appendChild(svg);
-
+        const gantt_div = document.createElement("div");
+        gantt_div.id = "gantt-div"
+        this.container.appendChild(gantt_div);
         // 初始化甘特图
-        this.gantt = new Gantt('#gantt-svg', tasks, {
+        this.gantt = new Gantt('#gantt-div', tasks, {
             view_mode: this.viewMode,
             date_format: 'YYYY-MM-DD',
             language: 'zh',
             header_height: 50,
             column_width: 30,
             step: 24,
-            bar_height: 30,
+            bar_height: 20,
             bar_corner_radius: 3,
-            arrow_curve: 5,
-            padding: 18,
-            view_modes: ['Quarter Day', 'Half Day', 'Day', 'Week', 'Month'],
+            arrow_curve: 10,
+            padding: 10,
+            // view_modes: ['Day'],
 
             // 自定义颜色
             custom_popup_html: (task) => {
@@ -106,23 +105,32 @@ export class GanttComponent {
     convertToGanttTasks(items) {
         const tasks = [];
 
-        items.forEach(item => {
-            if (item.start_datetime && item.end_datetime) {
-                const typeConfig = this.getTypeConfig(item.item_type);
+        // 添加数据验证
+        if (!Array.isArray(items)) {
+            console.warn('convertToGanttTasks received invalid items:', items);
+            return tasks;
+        }
 
-                tasks.push({
-                    id: item.id,
-                    name: item.name,
-                    start: dayjs(item.start_datetime).format('YYYY-MM-DD HH:mm'),
-                    end: dayjs(item.end_datetime).format('YYYY-MM-DD HH:mm'),
-                    progress: item.status === 'completed' ? 100 :
-                        item.status === 'in_progress' ? 50 : 0,
-                    dependencies: this.getDependencies(item.id),
-                    custom_class: `bar-${item.item_type}`,
-                    // 自定义数据
-                    _item: item
-                });
+        items.forEach(item => {
+
+            if (!item.start_datetime || !item.end_datetime) {
+                console.warn(`Item ${item.id} missing time data`);
+                return;
             }
+
+            const typeConfig = this.getTypeConfig(item.item_type);
+
+            tasks.push({
+                id: item.id,
+                name: item.name || `元素-${item.id}`,
+                start: dayjs(item.start_datetime).format('YYYY-MM-DD HH:mm'),
+                end: dayjs(item.end_datetime).format('YYYY-MM-DD HH:mm'),
+                progress: item.status === 'completed' ? 100 :
+                    item.status === 'in_progress' ? 50 : 0,
+                dependencies: this.getDependencies(item.id),
+                custom_class: `bar-${item.item_type || 'other'}`,
+                _item: item
+            });
         });
 
         return tasks;
@@ -168,7 +176,6 @@ export class GanttComponent {
 
     // 缩放视图
     zoomIn() {
-        const modes = ['Quarter Day', 'Half Day', 'Day', 'Week', 'Month'];
         const currentIndex = modes.indexOf(this.viewMode);
         if (currentIndex > 0) {
             this.viewMode = modes[currentIndex - 1];
@@ -177,7 +184,6 @@ export class GanttComponent {
     }
 
     zoomOut() {
-        const modes = ['Quarter Day', 'Half Day', 'Day', 'Week', 'Month'];
         const currentIndex = modes.indexOf(this.viewMode);
         if (currentIndex < modes.length - 1) {
             this.viewMode = modes[currentIndex + 1];

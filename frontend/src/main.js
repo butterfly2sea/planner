@@ -39,6 +39,9 @@ async function initApp() {
     planService = new PlanService();
     itemService = new ItemService();
 
+    // 初始化组件
+    initComponents();
+
     // 检查认证状态
     const token = localStorage.getItem('token');
     if (token) {
@@ -55,8 +58,6 @@ async function initApp() {
         showLoginModal();
     }
 
-    // 初始化组件
-    initComponents();
 
     // 绑定事件
     bindEvents();
@@ -86,35 +87,20 @@ function initComponents() {
     });
 
     // 初始化甘特图
-    ganttComponent = new GanttComponent('gantt-container', {
-        onTaskClick: (task) => selectItem(task.id),
-        onDateChange: async (task, start, end) => {
-            await updateItemTime(task.id, start, end);
-        },
-        onProgressChange: async (task, progress) => {
-            // TODO: 待补充
-            // 处理进度更新
-        }
-    });
+    ganttComponent = new GanttComponent('gantt-container');
 
-    // 初始化表单组件
+
+    // 初始化元素表单
     itemFormComponent = new ItemFormComponent('item-modal', {
-        onSave: async (data) => {
-            await saveItem(data);
+        onSave: saveItem,
+        onLocationPick: () => {
+            appState.isPickingLocation = true;
+            if (mapComponent && typeof mapComponent.enableLocationPicking === 'function') {
+                mapComponent.enableLocationPicking();
+            }
         },
         onLoadRelatedItems: async () => {
-            return appState.travelItems.filter(item => item.id !== itemFormComponent.editingItemId);
-        },
-        onLocationPick: () => {
-            // 激活地图选点模式
-            appState.isPickingLocation = !appState.isPickingLocation;
-            if (appState.isPickingLocation) {
-                showToast('请在地图上点击选择位置', 'info');
-                mapComponent.enableLocationPicking();
-            } else {
-                mapComponent.disableLocationPicking();
-            }
-            return appState.isPickingLocation;
+            return appState.travelItems;
         }
     });
 }
@@ -189,12 +175,20 @@ function bindEvents() {
     });
 
     // 地图控制
-    document.getElementById('fit-bounds-btn').addEventListener('click', () => {
-        mapComponent.fitBounds(appState.travelItems);
+    document.getElementById('fit-bounds-btn')?.addEventListener('click', () => {
+        if (mapComponent && typeof mapComponent.fitBounds === 'function') {
+            mapComponent.fitBounds(appState.travelItems);
+        } else {
+            showToast('地图组件未就绪', 'warning');
+        }
     });
 
-    document.getElementById('map-style-select').addEventListener('change', (e) => {
-        mapComponent.setStyle(e.target.value);
+    document.getElementById('map-style-select')?.addEventListener('change', (e) => {
+        if (mapComponent && typeof mapComponent.setStyle === 'function') {
+            mapComponent.setStyle(e.target.value);
+        } else {
+            showToast('地图组件未就绪', 'warning');
+        }
     });
 
     // 甘特图控制
@@ -341,6 +335,8 @@ async function loadPlans() {
 
 // 加载计划详情
 async function loadPlan(planId) {
+    if (!planId) return;
+
     try {
         showLoading(true);
 
@@ -355,8 +351,8 @@ async function loadPlan(planId) {
         updateAllViews();
 
         // 适应地图边界
-        if (items.length > 0) {
-            mapComponent.fitBounds(items);
+        if (items.items.length > 0) {
+            mapComponent.fitBounds(items.items);
         }
 
         showToast('计划加载成功', 'success');
@@ -515,7 +511,7 @@ function selectItem(itemId) {
     });
 
     // 地图定位
-    if (appState.selectedItem) {
+    if (appState.selectedItem && mapComponent && typeof mapComponent.focusItem === 'function') {
         mapComponent.focusItem(appState.selectedItem);
     }
 }
@@ -574,14 +570,27 @@ async function checkRelationConstraints(itemId) {
 // 编辑元素
 function editItem(itemId) {
     const item = appState.travelItems.find(i => i.id === itemId);
-    if (item) {
-        // 重置位置选择状态
-        appState.isPickingLocation = false;
-        mapComponent.disableLocationPicking();
-
-        // 更新列表
-        renderItemsList();
+    if (!item) {
+        showToast('未找到指定元素', 'error');
+        return;
     }
+
+    // 重置位置选择状态
+    appState.isPickingLocation = false;
+    if (mapComponent && typeof mapComponent.disableLocationPicking === 'function') {
+        mapComponent.disableLocationPicking();
+    }
+
+    // 修复: 实际打开编辑表单
+    if (itemFormComponent && typeof itemFormComponent.open === 'function') {
+        itemFormComponent.open(item);
+    } else {
+        console.error('ItemFormComponent not available');
+        showToast('表单组件未就绪', 'error');
+    }
+
+    // 更新列表
+    renderItemsList();
 }
 
 // 过滤元素
@@ -674,7 +683,20 @@ function createItemCard(item) {
 
 // 删除元素
 async function deleteItem(itemId) {
-    if (!confirm('确定要删除这个元素吗？')) return;
+    if (!itemId) {
+        showToast('无效的元素ID', 'error');
+        return;
+    }
+
+    const item = appState.travelItems.find(i => i.id === itemId);
+    if (!item) {
+        showToast('未找到指定元素', 'error');
+        return;
+    }
+
+    if (!confirm(`确定要删除元素"${item.name}"吗？此操作不可撤销。`)) {
+        return;
+    }
 
     try {
         showLoading(true);
@@ -683,12 +705,17 @@ async function deleteItem(itemId) {
         // 从本地列表中移除
         appState.travelItems = appState.travelItems.filter(item => item.id !== itemId);
 
+        // 如果删除的是当前选中的元素，清除选中状态
+        if (appState.selectedItem && appState.selectedItem.id === itemId) {
+            appState.selectedItem = null;
+        }
+
         // 更新视图
         updateAllViews();
 
         showToast('删除成功', 'success');
     } catch (error) {
-        showToast('删除失败', 'error');
+        showToast(error.message || '删除失败', 'error');
     } finally {
         showLoading(false);
     }
@@ -765,7 +792,7 @@ async function exportPlan() {
         const data = await planService.exportPlan(appState.currentPlan.id);
 
         // 创建下载链接
-        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const blob = new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'});
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
