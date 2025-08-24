@@ -28,7 +28,6 @@
           <!-- 日期头部 -->
           <div class="day-header">
             <div class="day-info">
-              <!-- 修复: 确保date参数是string类型 -->
               <h3 class="day-date">{{ formatDate(String(date)) }}</h3>
               <div class="day-stats">
                 <span class="item-count">{{ dayData.items.length }}项活动</span>
@@ -77,7 +76,6 @@
               <div class="timeline-content-wrapper">
                 <!-- 时间信息 -->
                 <div class="timeline-time">
-                  <!-- 修复: 确保参数类型正确 -->
                   <span class="start-time">{{ formatTime(item.start_datetime || null) }}</span>
                   <span v-if="item.end_datetime" class="end-time">
                     - {{ formatTime(item.end_datetime) }}
@@ -91,6 +89,7 @@
                 <div class="timeline-content-body">
                   <h4 class="item-title">
                     {{ item.name }}
+                    <!-- 修复: 确保type有有效值 -->
                     <el-tag
                         v-if="item.priority && item.priority !== 'normal'"
                         :type="getPriorityType(item.priority)"
@@ -116,7 +115,7 @@
                     </span>
                   </div>
 
-                  <!-- 状态指示器 -->
+                  <!-- 状态指示器 - 修复: 确保type有有效值 -->
                   <div v-if="item.status && item.status !== 'pending'" class="status-indicator">
                     <el-tag
                         :type="getStatusType(item.status)"
@@ -158,7 +157,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed } from 'vue'
 import dayjs from 'dayjs'
 import type { TravelItem, TypeConfig } from '@/types'
 import { Edit, Location } from '@element-plus/icons-vue'
@@ -260,7 +259,6 @@ const getTypeConfig = (type: string): TypeConfig => {
   return typeConfigs[type] || typeConfigs.other
 }
 
-// 修复: 确保参数类型安全
 const formatDate = (dateStr: string): string => {
   if (!dateStr) return ''
 
@@ -282,7 +280,6 @@ const formatDate = (dateStr: string): string => {
   }
 }
 
-// 修复: 处理可能为undefined的参数
 const formatTime = (datetime: string | null | undefined): string => {
   if (!datetime) return ''
 
@@ -311,44 +308,46 @@ const getDuration = (item: TravelItem): string => {
   }
 }
 
-const getPriorityType = (priority: string) => {
-  const types = {
+// 修复: 确保返回有效的Element Plus tag type
+const getPriorityType = (priority: string): "success" | "info" | "warning" | "danger" => {
+  const typeMap: Record<string, "success" | "info" | "warning" | "danger"> = {
     'high': 'danger',
     'medium': 'warning',
     'low': 'info',
-    'normal': ''
+    'normal': 'success'
   }
-  return types[priority as keyof typeof types] || ''
+  return typeMap[priority] || 'info'
 }
 
-const getPriorityText = (priority: string) => {
-  const texts = {
+const getPriorityText = (priority: string): string => {
+  const textMap: Record<string, string> = {
     'high': '高',
     'medium': '中',
     'low': '低',
     'normal': '普通'
   }
-  return texts[priority as keyof typeof texts] || priority
+  return textMap[priority] || priority
 }
 
-const getStatusType = (status: string) => {
-  const types = {
+// 修复: 确保返回有效的Element Plus tag type
+const getStatusType = (status: string): "success" | "info" | "warning" | "danger" => {
+  const typeMap: Record<string, "success" | "info" | "warning" | "danger"> = {
     'completed': 'success',
     'in_progress': 'warning',
     'cancelled': 'danger',
     'pending': 'info'
   }
-  return types[status as keyof typeof types] || 'info'
+  return typeMap[status] || 'info'
 }
 
-const getStatusText = (status: string) => {
-  const texts = {
+const getStatusText = (status: string): string => {
+  const textMap: Record<string, string> = {
     'completed': '已完成',
     'in_progress': '进行中',
     'cancelled': '已取消',
     'pending': '待处理'
   }
-  return texts[status as keyof typeof texts] || status
+  return textMap[status] || status
 }
 
 const truncateText = (text: string | undefined, maxLength: number): string => {

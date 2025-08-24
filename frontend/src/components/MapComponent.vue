@@ -2,10 +2,12 @@
   <div class="map-container">
     <div class="map-controls">
       <el-select v-model="currentStyle" @change="setMapStyle" style="width: 120px">
-        <el-option label="街道" value="street"/>
+        <el-option label="矢量" value="vector"/>
         <el-option label="卫星" value="satellite"/>
+        <el-option label="等高线" value="contour"/>
         <el-option label="地形" value="terrain"/>
         <el-option label="深色" value="dark"/>
+        <el-option label="浅色" value="light"/>
       </el-select>
 
       <el-button @click="fitBounds" size="small">
@@ -72,14 +74,107 @@ const mapContainer = ref<HTMLElement>()
 const map = ref<maplibregl.Map>()
 // 修复: 明确指定Map类型避免类型推断问题
 const markers = ref<Map<number, maplibregl.Marker>>(new Map<number, maplibregl.Marker>())
-const currentStyle = ref<keyof typeof mapStyles>('street')
+const currentStyle = ref<keyof typeof mapStyles>('vector')
 const isLocationPicking = ref(false)
 
 const mapStyles = {
-  street: 'https://demotiles.maplibre.org/style.json',
-  satellite: 'https://api.maptiler.com/maps/hybrid/style.json?key=get_your_own_OpIi9ZULNHzrESv6T2vL',
+  // 中文矢量地图 (基于OpenStreetMap)
+  vector: {
+    version: 8,
+    sources: {
+      'osm-tiles': {
+        type: 'raster',
+        tiles: [
+          'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
+        ],
+        tileSize: 256,
+        attribution: '© OpenStreetMap contributors'
+      },
+      'chinese-labels': {
+        type: 'vector',
+        tiles: [
+          'https://api.maptiler.com/tiles/v3/{z}/{x}/{y}.pbf?key=get_your_own_OpIi9ZULNHzrESv6T2vL'
+        ]
+      }
+    },
+    layers: [
+      {
+        id: 'osm-tiles',
+        source: 'osm-tiles',
+        type: 'raster'
+      }
+    ]
+  },
+
+  // 中文卫星图
+  satellite: {
+    version: 8,
+    sources: {
+      'satellite': {
+        type: 'raster',
+        tiles: [
+          'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
+        ],
+        tileSize: 256,
+        attribution: '© Esri, Maxar, GeoEye, Earthstar Geographics'
+      }
+    },
+    layers: [
+      {
+        id: 'satellite',
+        source: 'satellite',
+        type: 'raster'
+      }
+    ]
+  },
+
+  // 等高线地形图
+  contour: {
+    version: 8,
+    sources: {
+      'terrain': {
+        type: 'raster',
+        tiles: [
+          'https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}'
+        ],
+        tileSize: 256,
+        attribution: '© Esri'
+      },
+      'contours': {
+        type: 'vector',
+        tiles: [
+          'https://api.maptiler.com/tiles/contours/{z}/{x}/{y}.pbf?key=get_your_own_OpIi9ZULNHzrESv6T2vL'
+        ]
+      }
+    },
+    layers: [
+      {
+        id: 'terrain',
+        source: 'terrain',
+        type: 'raster'
+      },
+      {
+        id: 'contour-lines',
+        source: 'contours',
+        'source-layer': 'contour',
+        type: 'line',
+        paint: {
+          'line-color': '#8B4513',
+          'line-width': 1,
+          'line-opacity': 0.6
+        }
+      }
+    ]
+  },
+
+  // 地形图
   terrain: 'https://api.maptiler.com/maps/outdoor/style.json?key=get_your_own_OpIi9ZULNHzrESv6T2vL',
-  dark: 'https://api.maptiler.com/maps/streets-v2-dark/style.json?key=get_your_own_OpIi9ZULNHzrESv6T2vL'
+
+  // 深色模式
+  dark: 'https://api.maptiler.com/maps/streets-v2-dark/style.json?key=get_your_own_OpIi9ZULNHzrESv6T2vL',
+
+  // 简洁白色
+  light: 'https://api.maptiler.com/maps/streets-v2/style.json?key=get_your_own_OpIi9ZULNHzrESv6T2vL'
 } as const
 
 const typeConfigs: Record<string, TypeConfig> = {
