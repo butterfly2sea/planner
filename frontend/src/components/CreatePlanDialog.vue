@@ -17,6 +17,7 @@
             placeholder="请输入计划名称"
             maxlength="50"
             show-word-limit
+            @keyup.enter="handleSubmit"
         />
       </el-form-item>
 
@@ -35,7 +36,12 @@
     <template #footer>
       <div class="dialog-footer">
         <el-button @click="handleClose">取消</el-button>
-        <el-button type="primary" :loading="loading" @click="handleSubmit">
+        <el-button
+            type="primary"
+            :loading="loading"
+            @click="handleSubmit"
+            :disabled="!form.name.trim()"
+        >
           创建
         </el-button>
       </div>
@@ -44,7 +50,8 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, ref, watch } from 'vue'
+// 修复: 添加所有必需的导入
+import { reactive, ref, watch, computed } from 'vue'
 import { usePlanStore } from '@/stores/plan'
 import type { FormInstance, FormRules } from 'element-plus'
 
@@ -64,6 +71,8 @@ const planStore = usePlanStore()
 
 const formRef = ref<FormInstance>()
 const dialogVisible = ref(false)
+
+// 使用reactive确保表单数据响应式
 const form = reactive({
   name: '',
   description: ''
@@ -76,15 +85,18 @@ const rules: FormRules = {
   ]
 }
 
+// 修复: 确保computed正确导入和定义
 const loading = computed(() => planStore.loading)
 
+// 监听props变化
 watch(() => props.modelValue, (val) => {
   dialogVisible.value = val
   if (val) {
     resetForm()
   }
-})
+}, { immediate: true })
 
+// 监听dialog状态变化
 watch(dialogVisible, (val) => {
   emit('update:modelValue', val)
 })
@@ -92,29 +104,71 @@ watch(dialogVisible, (val) => {
 const resetForm = () => {
   form.name = ''
   form.description = ''
-  formRef.value?.clearValidate()
+  // 清除验证状态
+  nextTick(() => {
+    formRef.value?.clearValidate()
+  })
 }
 
 const handleClose = () => {
   dialogVisible.value = false
 }
 
+// 修复: 确保事件处理函数正确定义并添加错误处理
 const handleSubmit = async () => {
-  if (!formRef.value) return
-
-  const valid = await formRef.value.validate().catch(() => false)
-  if (!valid) return
+  if (!formRef.value) {
+    console.error('Form ref not available')
+    return
+  }
 
   try {
+    // 验证表单
+    const valid = await formRef.value.validate()
+    if (!valid) {
+      console.warn('Form validation failed')
+      return
+    }
+
+    console.log('Submitting form with data:', form)
+
+    // 创建计划
     const plan = await planStore.createPlan({
-      name: form.name,
-      description: form.description || undefined
+      name: form.name.trim(),
+      description: form.description.trim() || undefined
     })
 
+    console.log('Plan created successfully:', plan)
+
+    // 发送事件
     emit('created', plan)
     dialogVisible.value = false
   } catch (error) {
-    // 错误已在store中处理
+    console.error('Failed to create plan:', error)
+    // 错误已在store中处理，这里不需要额外处理
   }
 }
+
+// 修复: 添加nextTick导入以确保DOM更新
+import { nextTick } from 'vue'
 </script>
+
+<style lang="scss" scoped>
+.dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+// 增加一些视觉反馈
+.el-button {
+  transition: all 0.3s ease;
+
+  &:hover {
+    transform: translateY(-1px);
+  }
+
+  &:active {
+    transform: translateY(0);
+  }
+}
+</style>

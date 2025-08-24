@@ -17,8 +17,10 @@
           />
         </el-select>
 
-        <el-button type="primary" @click="showCreatePlanDialog = true">
-          <el-icon><Plus /></el-icon>
+        <el-button type="primary" @click="handleCreatePlan">
+          <el-icon>
+            <Plus/>
+          </el-icon>
           新建计划
         </el-button>
       </div>
@@ -26,28 +28,38 @@
       <div class="view-tabs">
         <el-radio-group v-model="activeView" @change="handleViewChange">
           <el-radio-button value="map">
-            <el-icon><Location /></el-icon>
+            <el-icon>
+              <Location/>
+            </el-icon>
             地图
           </el-radio-button>
           <el-radio-button value="timeline">
-            <el-icon><Clock /></el-icon>
+            <el-icon>
+              <Clock/>
+            </el-icon>
             时间轴
           </el-radio-button>
           <el-radio-button value="gantt">
-            <el-icon><Histogram /></el-icon>
+            <el-icon>
+              <Histogram/>
+            </el-icon>
             甘特图
           </el-radio-button>
         </el-radio-group>
       </div>
 
       <div class="toolbar">
-        <el-button type="primary" @click="showItemDialog = true">
-          <el-icon><Plus /></el-icon>
+        <el-button type="primary" @click="handleAddItem">
+          <el-icon>
+            <Plus/>
+          </el-icon>
           添加元素
         </el-button>
 
         <el-button @click="exportPlan">
-          <el-icon><Download /></el-icon>
+          <el-icon>
+            <Download/>
+          </el-icon>
           导出
         </el-button>
       </div>
@@ -84,6 +96,11 @@
             suffix="%"
         />
       </div>
+
+      <!-- 调试开关 -->
+      <div v-if="isDev" class="debug-controls">
+        <el-switch v-model="showDebugInfo" active-text="调试信息"/>
+      </div>
     </div>
 
     <!-- 主内容区域 -->
@@ -91,9 +108,14 @@
       <!-- 地图视图 -->
       <div v-show="activeView === 'map'" class="view-panel">
         <MapComponent
+            ref="mapRef"
             :items="itemStore.filteredItems"
+            :is-location-picking="isLocationPicking"
+            :show-debug-info="showDebugInfo"
             @marker-click="handleMarkerClick"
             @map-click="handleMapClick"
+            @location-picked="handleLocationPicked"
+            @location-pick-cancelled="handleLocationPickCancelled"
         />
       </div>
 
@@ -101,8 +123,10 @@
       <div v-show="activeView === 'timeline'" class="view-panel">
         <TimelineComponent
             :items="itemStore.filteredItems"
+            :show-debug-info="showDebugInfo"
             @item-click="handleItemClick"
             @item-edit="handleItemEdit"
+            @show-on-map="handleShowOnMap"
         />
       </div>
 
@@ -111,15 +135,21 @@
         <div class="gantt-toolbar">
           <el-button-group>
             <el-button @click="ganttZoomIn">
-              <el-icon><ZoomIn /></el-icon>
+              <el-icon>
+                <ZoomIn/>
+              </el-icon>
               放大
             </el-button>
             <el-button @click="ganttZoomOut">
-              <el-icon><ZoomOut /></el-icon>
+              <el-icon>
+                <ZoomOut/>
+              </el-icon>
               缩小
             </el-button>
             <el-button @click="ganttScrollToToday">
-              <el-icon><Calendar /></el-icon>
+              <el-icon>
+                <Calendar/>
+              </el-icon>
               今天
             </el-button>
           </el-button-group>
@@ -141,20 +171,49 @@
 
     <!-- 元素编辑对话框 -->
     <ItemDialog
+        ref="itemDialogRef"
         v-model="showItemDialog"
         :item="editingItem"
         @saved="handleItemSaved"
-        @location-pick="handleLocationPick"
+        @location-pick-start="handleLocationPickStart"
+        @location-pick-cancel="handleLocationPickCancel"
     />
+
+    <!-- 调试信息面板 -->
+    <div v-if="showDebugInfo" class="debug-panel">
+      <el-card header="调试信息" class="debug-card">
+        <div class="debug-item">
+          <strong>当前计划:</strong>
+          {{ planStore.currentPlan?.name || '无' }}
+          (ID: {{ planStore.currentPlanId || '无' }})
+        </div>
+        <div class="debug-item">
+          <strong>总项目数:</strong> {{ itemStore.items.length }}
+        </div>
+        <div class="debug-item">
+          <strong>过滤后项目数:</strong> {{ itemStore.filteredItems.length }}
+        </div>
+        <div class="debug-item">
+          <strong>当前视图:</strong> {{ activeView }}
+        </div>
+        <div class="debug-item">
+          <strong>位置选择模式:</strong> {{ isLocationPicking ? '是' : '否' }}
+        </div>
+        <div class="debug-item">
+          <strong>加载状态:</strong> {{ itemStore.loading ? '加载中' : '空闲' }}
+        </div>
+      </el-card>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
-import { usePlanStore } from '@/stores/plan'
-import { useItemStore } from '@/stores/item'
-import { ElMessage } from 'element-plus'
-import type { TravelItem } from '@/types'
+import {computed, nextTick, onMounted, ref, watch} from 'vue'
+import {usePlanStore} from '@/stores/plan'
+import {useItemStore} from '@/stores/item'
+import {ElMessage} from 'element-plus'
+import {Calendar, Clock, Download, Histogram, Location, Plus, ZoomIn, ZoomOut} from '@element-plus/icons-vue'
+import type {TravelItem} from '@/types'
 
 // Components
 import MapComponent from '@/components/MapComponent.vue'
@@ -166,140 +225,322 @@ import ItemDialog from '@/components/ItemDialog.vue'
 const planStore = usePlanStore()
 const itemStore = useItemStore()
 
+// 环境检测
+const isDev = import.meta.env.DEV
+
 // 响应式数据
 const activeView = ref<'map' | 'timeline' | 'gantt'>('map')
 const selectedPlanId = ref<number | null>(null)
 const showCreatePlanDialog = ref(false)
 const showItemDialog = ref(false)
 const editingItem = ref<TravelItem | null>(null)
+const isLocationPicking = ref(false)
+const showDebugInfo = ref(false)
+
+// 组件引用
 const ganttRef = ref()
+const mapRef = ref()
+const itemDialogRef = ref()
 
 // 计算属性
 const currentPlan = computed(() => planStore.currentPlan)
 
 // 生命周期
 onMounted(async () => {
-  await planStore.loadPlans()
-  if (planStore.currentPlan) {
-    selectedPlanId.value = planStore.currentPlan.id
-    await itemStore.loadItems(planStore.currentPlan.id)
+  try {
+    console.log('Planner component mounted, loading plans...')
+    await planStore.loadPlans()
+
+    if (planStore.currentPlan) {
+      selectedPlanId.value = planStore.currentPlan.id
+      console.log('Loading items for plan:', planStore.currentPlan.id)
+      await itemStore.loadItems(planStore.currentPlan.id)
+    } else {
+      console.warn('No current plan available after loading')
+      itemStore.initialize()
+    }
+  } catch (error) {
+    console.error('Failed to initialize planner:', error)
+    ElMessage.error('初始化失败，请刷新页面重试')
   }
 })
 
 // 监听器
 watch(() => planStore.currentPlan, (newPlan) => {
-  if (newPlan) {
+  if (newPlan && newPlan.id !== selectedPlanId.value) {
     selectedPlanId.value = newPlan.id
+    console.log('Current plan changed:', newPlan.id)
   }
-})
+}, {immediate: true})
 
-// 事件处理
+watch(() => itemStore.items, (newItems) => {
+  console.log('Items changed:', newItems?.length || 0)
+}, {deep: true})
+
+// 计划管理事件处理
 const handlePlanChange = async (planId: number) => {
-  await planStore.selectPlan(planId)
-  await itemStore.loadItems(planId)
+  if (!planId) {
+    console.warn('Invalid plan ID:', planId)
+    return
+  }
+
+  try {
+    console.log('Changing to plan:', planId)
+    await planStore.selectPlan(planId)
+    await itemStore.loadItems(planId)
+    console.log('Plan changed successfully')
+  } catch (error) {
+    console.error('Failed to change plan:', error)
+    ElMessage.error('切换计划失败')
+  }
 }
 
-const handleViewChange = (view: string) => {
-  activeView.value = view as 'map' | 'timeline' | 'gantt'
+const handleCreatePlan = () => {
+  console.log('Create plan button clicked')
+  showCreatePlanDialog.value = true
 }
 
 const handlePlanCreated = (plan: any) => {
-  selectedPlanId.value = plan.id
+  console.log('Plan created:', plan)
+  if (plan && plan.id) {
+    selectedPlanId.value = plan.id
+  }
   showCreatePlanDialog.value = false
+  ElMessage.success('计划创建成功')
+}
+
+// 视图切换
+const handleViewChange = (view: string) => {
+  console.log('Changing view to:', view)
+  activeView.value = view as 'map' | 'timeline' | 'gantt'
+}
+
+// 项目管理事件处理
+const handleAddItem = () => {
+  console.log('Add item button clicked')
+  if (!planStore.currentPlan) {
+    ElMessage.warning('请先选择一个计划')
+    return
+  }
+  editingItem.value = null
+  showItemDialog.value = true
 }
 
 const handleItemSaved = async () => {
+  console.log('Item saved, refreshing items list')
   showItemDialog.value = false
   editingItem.value = null
-  await itemStore.loadItems(planStore.currentPlanId!)
-}
 
-const handleMarkerClick = (itemId: number) => {
-  itemStore.selectItem(itemId)
-}
-
-const handleMapClick = (lngLat: { lng: number; lat: number }) => {
-  // TODO: 处理地图点击，可能用于位置选择
-  console.log('Map clicked:', lngLat)
+  if (planStore.currentPlanId) {
+    try {
+      await itemStore.loadItems(planStore.currentPlanId)
+      console.log('Items reloaded successfully')
+    } catch (error) {
+      console.error('Failed to reload items:', error)
+      ElMessage.error('保存成功，但刷新列表失败')
+    }
+  }
 }
 
 const handleItemClick = (itemId: number) => {
-  itemStore.selectItem(itemId)
+  console.log('Item clicked:', itemId)
+  if (typeof itemId === 'number') {
+    itemStore.selectItem(itemId)
+  }
 }
 
 const handleItemEdit = (itemId: number) => {
+  console.log('Edit item:', itemId)
+
+  if (!Array.isArray(itemStore.items)) {
+    console.error('Items is not an array:', itemStore.items)
+    return
+  }
+
   const item = itemStore.items.find(i => i.id === itemId)
   if (item) {
     editingItem.value = item
     showItemDialog.value = true
+  } else {
+    console.warn('Item not found:', itemId)
+    ElMessage.warning('找不到该项目')
   }
 }
 
+// 地图相关事件处理
+const handleMarkerClick = (itemId: number) => {
+  console.log('Marker clicked:', itemId)
+  if (typeof itemId === 'number') {
+    itemStore.selectItem(itemId)
+  }
+}
+
+const handleMapClick = (lngLat: { lng: number; lat: number }) => {
+  console.log('Map clicked:', lngLat, 'isLocationPicking:', isLocationPicking.value)
+
+  if (isLocationPicking.value && itemDialogRef.value) {
+    // 位置选择模式下传递坐标给对话框
+    itemDialogRef.value.setLocation(lngLat)
+  }
+}
+
+const handleShowOnMap = (item: TravelItem) => {
+  console.log('Show item on map:', item.id)
+  activeView.value = 'map'
+
+  nextTick(() => {
+    if (mapRef.value && item.latitude && item.longitude) {
+      // 聚焦到该项目位置
+      itemStore.selectItem(item.id)
+    }
+  })
+}
+
+// 位置选择相关
+const handleLocationPickStart = () => {
+  console.log('Location pick started from dialog')
+  isLocationPicking.value = true
+
+  // 切换到地图视图
+  if (activeView.value !== 'map') {
+    activeView.value = 'map'
+  }
+
+  // 启动地图的位置选择模式
+  nextTick(() => {
+    if (mapRef.value) {
+      mapRef.value.startLocationPicking()
+    }
+  })
+}
+
+const handleLocationPickCancel = () => {
+  console.log('Location pick cancelled from dialog')
+  isLocationPicking.value = false
+
+  if (mapRef.value) {
+    mapRef.value.cancelLocationPick()
+  }
+}
+
+const handleLocationPicked = (lngLat: { lng: number; lat: number }) => {
+  console.log('Location picked from map:', lngLat)
+
+  // 传递给对话框
+  if (itemDialogRef.value) {
+    itemDialogRef.value.setLocation(lngLat)
+  }
+}
+
+const handleLocationPickCancelled = () => {
+  console.log('Location pick cancelled from map')
+  isLocationPicking.value = false
+}
+
+// 甘特图相关事件处理
 const handleTaskClick = (task: any) => {
-  if (task._item) {
+  console.log('Task clicked:', task)
+  if (task && task._item && task._item.id) {
     itemStore.selectItem(task._item.id)
   }
 }
 
 const handleDateChange = async (task: any, start: Date, end: Date) => {
-  if (task._item) {
-    try {
-      await itemStore.updateItem(task._item.id, {
-        id: task._item.id,
-        start_datetime: start.toISOString(),
-        end_datetime: end.toISOString()
-      })
-      ElMessage.success('时间更新成功')
-    } catch (error) {
-      ElMessage.error('时间更新失败')
-    }
+  if (!task || !task._item) {
+    console.error('Invalid task data:', task)
+    return
   }
-}
 
-const handleLocationPick = () => {
-  // TODO: 启用地图位置选择模式
-  activeView.value = 'map'
-  ElMessage.info('请在地图上点击选择位置')
+  console.log('Updating task dates:', task._item.id, start, end)
+
+  try {
+    await itemStore.updateItem(task._item.id, {
+      id: task._item.id,
+      start_datetime: start.toISOString(),
+      end_datetime: end.toISOString()
+    })
+    ElMessage.success('时间更新成功')
+  } catch (error) {
+    console.error('Failed to update dates:', error)
+    ElMessage.error('时间更新失败')
+  }
 }
 
 // 甘特图控制
 const ganttZoomIn = () => {
-  ganttRef.value?.zoomIn()
+  try {
+    if (ganttRef.value && typeof ganttRef.value.zoomIn === 'function') {
+      ganttRef.value.zoomIn()
+    } else {
+      console.warn('Gantt zoom in not available')
+    }
+  } catch (error) {
+    console.error('Failed to zoom in gantt:', error)
+  }
 }
 
 const ganttZoomOut = () => {
-  ganttRef.value?.zoomOut()
+  try {
+    if (ganttRef.value && typeof ganttRef.value.zoomOut === 'function') {
+      ganttRef.value.zoomOut()
+    } else {
+      console.warn('Gantt zoom out not available')
+    }
+  } catch (error) {
+    console.error('Failed to zoom out gantt:', error)
+  }
 }
 
 const ganttScrollToToday = () => {
-  ganttRef.value?.scrollToToday()
+  try {
+    if (ganttRef.value && typeof ganttRef.value.scrollToToday === 'function') {
+      ganttRef.value.scrollToToday()
+    } else {
+      console.warn('Gantt scroll to today not available')
+    }
+  } catch (error) {
+    console.error('Failed to scroll gantt to today:', error)
+  }
 }
 
-// 导出计划
+// 导出功能
 const exportPlan = () => {
-  if (!currentPlan.value || itemStore.items.length === 0) {
+  if (!currentPlan.value) {
+    ElMessage.warning('没有选择的计划')
+    return
+  }
+
+  if (!Array.isArray(itemStore.items) || itemStore.items.length === 0) {
     ElMessage.warning('没有可导出的数据')
     return
   }
 
-  const exportData = {
-    plan: currentPlan.value,
-    items: itemStore.items,
-    exportTime: new Date().toISOString()
+  try {
+    const exportData = {
+      plan: currentPlan.value,
+      items: itemStore.items,
+      exportTime: new Date().toISOString(),
+      version: '2.0'
+    }
+
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], {
+      type: 'application/json'
+    })
+
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${currentPlan.value.name}-${new Date().toISOString().split('T')[0]}.json`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+
+    URL.revokeObjectURL(url)
+    ElMessage.success('导出成功')
+  } catch (error) {
+    console.error('Failed to export plan:', error)
+    ElMessage.error('导出失败')
   }
-
-  const blob = new Blob([JSON.stringify(exportData, null, 2)], {
-    type: 'application/json'
-  })
-
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = `${currentPlan.value.name}-${new Date().toISOString().split('T')[0]}.json`
-  a.click()
-
-  URL.revokeObjectURL(url)
-  ElMessage.success('导出成功')
 }
 </script>
 
@@ -318,11 +559,25 @@ const exportPlan = () => {
   padding: 16px 24px;
   background: white;
   border-bottom: 1px solid #e8e8e8;
+  flex-wrap: wrap;
+  gap: 16px;
 
   .plan-selector {
     display: flex;
     align-items: center;
     gap: 12px;
+  }
+
+  .view-tabs {
+    flex: 1;
+    display: flex;
+    justify-content: center;
+
+    @media (max-width: 768px) {
+      order: 3;
+      width: 100%;
+      justify-content: flex-start;
+    }
   }
 
   .toolbar {
@@ -338,6 +593,8 @@ const exportPlan = () => {
   padding: 16px 24px;
   background: white;
   border-bottom: 1px solid #e8e8e8;
+  flex-wrap: wrap;
+  gap: 16px;
 
   .stats {
     display: flex;
@@ -347,11 +604,17 @@ const exportPlan = () => {
       .el-statistic__content {
         font-size: 16px;
       }
+
       .el-statistic__head {
         font-size: 12px;
         color: #999;
       }
     }
+  }
+
+  .debug-controls {
+    display: flex;
+    align-items: center;
   }
 }
 
@@ -372,6 +635,71 @@ const exportPlan = () => {
     padding: 12px 16px;
     background: white;
     border-bottom: 1px solid #e8e8e8;
+  }
+}
+
+.debug-panel {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 9999;
+  width: 300px;
+
+  .debug-card {
+    :deep(.el-card__body) {
+      padding: 16px;
+    }
+  }
+
+  .debug-item {
+    margin-bottom: 8px;
+    font-size: 12px;
+    line-height: 1.4;
+
+    &:last-child {
+      margin-bottom: 0;
+    }
+
+    strong {
+      color: #333;
+    }
+  }
+}
+
+// 响应式设计
+@media (max-width: 768px) {
+  .planner-header {
+    padding: 12px 16px;
+
+    .plan-selector {
+      order: 1;
+    }
+
+    .toolbar {
+      order: 2;
+    }
+  }
+
+  .filter-bar {
+    padding: 12px 16px;
+
+    .stats {
+      gap: 16px;
+
+      :deep(.el-statistic) {
+        .el-statistic__content {
+          font-size: 14px;
+        }
+      }
+    }
+  }
+
+  .debug-panel {
+    position: relative;
+    top: auto;
+    right: auto;
+    width: 100%;
+    margin: 16px;
   }
 }
 </style>

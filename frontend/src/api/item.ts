@@ -1,10 +1,10 @@
 import http from './http'
-import type { TravelItem, CreateItemRequest, UpdateItemRequest } from '@/types'
+import {CreateItemRequest, TravelItem, TravelItemResponse, UpdateItemRequest} from '@/types'
 
 export const itemApi = {
     // 获取计划下的所有元素
-    getAll: (planId: number): Promise<TravelItem[]> => {
-        return http.get(`/plans/${planId}/items`)
+    getAll: (planId: number): Promise<TravelItemResponse> => {
+        return http.get(`/items/plan/${planId}`)
     },
 
     // 根据ID获取元素
@@ -14,12 +14,14 @@ export const itemApi = {
 
     // 创建元素
     create: (data: CreateItemRequest): Promise<TravelItem> => {
-        return http.post('/items', data)
+        const {plan_id, ...itemData} = data
+        return http.post(`/items/plan/${plan_id}`, itemData)
     },
 
     // 更新元素
     update: (id: number, data: UpdateItemRequest): Promise<TravelItem> => {
-        return http.put(`/items/${id}`, data)
+        const {id: itemId, ...updateData} = data
+        return http.put(`/items/${id}`, updateData)
     },
 
     // 删除元素
@@ -27,9 +29,16 @@ export const itemApi = {
         return http.delete(`/items/${id}`)
     },
 
-    // 批量更新元素
-    batchUpdate: (items: UpdateItemRequest[]): Promise<TravelItem[]> => {
-        return http.put('/items/batch', { items })
+    // 重新排序元素
+    reorderItems: (planId: number, itemIds: number[]): Promise<void> => {
+        return http.put(`/items/plan/${planId}/reorder`, {
+            item_ids: itemIds
+        })
+    },
+
+    // 更新元素状态
+    updateStatus: (id: number, status: string): Promise<TravelItem> => {
+        return http.patch(`/items/${id}/status`, {status})
     },
 
     // 上传图片
