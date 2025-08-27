@@ -21,13 +21,6 @@
       </el-button>
     </div>
 
-    <!-- 调试信息 -->
-    <div v-if="showDebugInfo" class="debug-info">
-      <p>Items count: {{ props.items?.length || 0 }}</p>
-      <p>Markers count: {{ markers.size }}</p>
-      <p>Location picking: {{ isLocationPicking }}</p>
-    </div>
-
     <div ref="mapContainer" class="map" :class="{ 'location-picking': isLocationPicking }"/>
 
     <!-- 空状态显示 -->
@@ -53,7 +46,6 @@ import { ElMessage } from 'element-plus'
 interface Props {
   items: TravelItem[]
   isLocationPicking?: boolean
-  showDebugInfo?: boolean
 }
 
 interface Emits {
@@ -65,7 +57,6 @@ interface Emits {
 
 const props = withDefaults(defineProps<Props>(), {
   isLocationPicking: false,
-  showDebugInfo: false
 })
 
 const emit = defineEmits<Emits>()

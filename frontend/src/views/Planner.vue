@@ -96,11 +96,6 @@
             suffix="%"
         />
       </div>
-
-      <!-- 调试开关 -->
-      <div v-if="isDev" class="debug-controls">
-        <el-switch v-model="showDebugInfo" active-text="调试信息"/>
-      </div>
     </div>
 
     <!-- 主内容区域 -->
@@ -111,7 +106,6 @@
             ref="mapRef"
             :items="itemStore.filteredItems"
             :is-location-picking="isLocationPicking"
-            :show-debug-info="showDebugInfo"
             @marker-click="handleMarkerClick"
             @map-click="handleMapClick"
             @location-picked="handleLocationPicked"
@@ -123,7 +117,6 @@
       <div v-show="activeView === 'timeline'" class="view-panel">
         <TimelineComponent
             :items="itemStore.filteredItems"
-            :show-debug-info="showDebugInfo"
             @item-click="handleItemClick"
             @item-edit="handleItemEdit"
             @show-on-map="handleShowOnMap"
@@ -132,28 +125,6 @@
 
       <!-- 甘特图视图 -->
       <div v-show="activeView === 'gantt'" class="view-panel">
-        <div class="gantt-toolbar">
-          <el-button-group>
-            <el-button @click="ganttZoomIn">
-              <el-icon>
-                <ZoomIn/>
-              </el-icon>
-              放大
-            </el-button>
-            <el-button @click="ganttZoomOut">
-              <el-icon>
-                <ZoomOut/>
-              </el-icon>
-              缩小
-            </el-button>
-            <el-button @click="ganttScrollToToday">
-              <el-icon>
-                <Calendar/>
-              </el-icon>
-              今天
-            </el-button>
-          </el-button-group>
-        </div>
         <GanttComponent
             ref="ganttRef"
             :items="itemStore.filteredItems"
@@ -178,32 +149,6 @@
         @location-pick-start="handleLocationPickStart"
         @location-pick-cancel="handleLocationPickCancel"
     />
-
-    <!-- 调试信息面板 -->
-    <div v-if="showDebugInfo" class="debug-panel">
-      <el-card header="调试信息" class="debug-card">
-        <div class="debug-item">
-          <strong>当前计划:</strong>
-          {{ planStore.currentPlan?.name || '无' }}
-          (ID: {{ planStore.currentPlanId || '无' }})
-        </div>
-        <div class="debug-item">
-          <strong>总项目数:</strong> {{ itemStore.items.length }}
-        </div>
-        <div class="debug-item">
-          <strong>过滤后项目数:</strong> {{ itemStore.filteredItems.length }}
-        </div>
-        <div class="debug-item">
-          <strong>当前视图:</strong> {{ activeView }}
-        </div>
-        <div class="debug-item">
-          <strong>位置选择模式:</strong> {{ isLocationPicking ? '是' : '否' }}
-        </div>
-        <div class="debug-item">
-          <strong>加载状态:</strong> {{ itemStore.loading ? '加载中' : '空闲' }}
-        </div>
-      </el-card>
-    </div>
   </div>
 </template>
 
@@ -225,9 +170,6 @@ import ItemDialog from '@/components/ItemDialog.vue'
 const planStore = usePlanStore()
 const itemStore = useItemStore()
 
-// 环境检测
-const isDev = import.meta.env.DEV
-
 // 响应式数据
 const activeView = ref<'map' | 'timeline' | 'gantt'>('map')
 const selectedPlanId = ref<number | null>(null)
@@ -235,7 +177,6 @@ const showCreatePlanDialog = ref(false)
 const showItemDialog = ref(false)
 const editingItem = ref<TravelItem | null>(null)
 const isLocationPicking = ref(false)
-const showDebugInfo = ref(false)
 
 // 组件引用
 const ganttRef = ref()
@@ -466,43 +407,6 @@ const handleDateChange = async (task: any, start: Date, end: Date) => {
   }
 }
 
-// 甘特图控制
-const ganttZoomIn = () => {
-  try {
-    if (ganttRef.value && typeof ganttRef.value.zoomIn === 'function') {
-      ganttRef.value.zoomIn()
-    } else {
-      console.warn('Gantt zoom in not available')
-    }
-  } catch (error) {
-    console.error('Failed to zoom in gantt:', error)
-  }
-}
-
-const ganttZoomOut = () => {
-  try {
-    if (ganttRef.value && typeof ganttRef.value.zoomOut === 'function') {
-      ganttRef.value.zoomOut()
-    } else {
-      console.warn('Gantt zoom out not available')
-    }
-  } catch (error) {
-    console.error('Failed to zoom out gantt:', error)
-  }
-}
-
-const ganttScrollToToday = () => {
-  try {
-    if (ganttRef.value && typeof ganttRef.value.scrollToToday === 'function') {
-      ganttRef.value.scrollToToday()
-    } else {
-      console.warn('Gantt scroll to today not available')
-    }
-  } catch (error) {
-    console.error('Failed to scroll gantt to today:', error)
-  }
-}
-
 // 导出功能
 const exportPlan = () => {
   if (!currentPlan.value) {
@@ -611,11 +515,6 @@ const exportPlan = () => {
       }
     }
   }
-
-  .debug-controls {
-    display: flex;
-    align-items: center;
-  }
 }
 
 .planner-content {
@@ -635,34 +534,6 @@ const exportPlan = () => {
     padding: 12px 16px;
     background: white;
     border-bottom: 1px solid #e8e8e8;
-  }
-}
-
-.debug-panel {
-  position: fixed;
-  top: 20px;
-  right: 20px;
-  z-index: 9999;
-  width: 300px;
-
-  .debug-card {
-    :deep(.el-card__body) {
-      padding: 16px;
-    }
-  }
-
-  .debug-item {
-    margin-bottom: 8px;
-    font-size: 12px;
-    line-height: 1.4;
-
-    &:last-child {
-      margin-bottom: 0;
-    }
-
-    strong {
-      color: #333;
-    }
   }
 }
 
@@ -692,14 +563,6 @@ const exportPlan = () => {
         }
       }
     }
-  }
-
-  .debug-panel {
-    position: relative;
-    top: auto;
-    right: auto;
-    width: 100%;
-    margin: 16px;
   }
 }
 </style>

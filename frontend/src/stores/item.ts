@@ -13,7 +13,6 @@ export const useItemStore = defineStore('item', () => {
 
     const planStore = usePlanStore()
 
-    // 修复: 确保返回值始终是数组
     const filteredItems = computed(() => {
         // 防御性编程：确保 items.value 是数组
         if (!Array.isArray(items.value)) {
@@ -24,22 +23,20 @@ export const useItemStore = defineStore('item', () => {
         if (filterType.value === 'all') {
             return items.value
         }
-        return items.value.filter(item => item.item_type === filterType.value)
+        return items.value.filter(item => item?.item_type === filterType.value)
     })
 
-    // 修复: 添加数组检查，防止reduce报错
     const totalCost = computed(() => {
         const itemsArray = filteredItems.value
         if (!Array.isArray(itemsArray) || itemsArray.length === 0) {
             return 0
         }
         return itemsArray.reduce((sum, item) => {
-            const cost = typeof item.cost === 'number' ? item.cost : 0
+            const cost = typeof item?.cost === 'number' ? item.cost : 0
             return sum + cost
         }, 0)
     })
 
-    // 修复: 同样添加数组检查
     const completedItems = computed(() => {
         const itemsArray = filteredItems.value
         if (!Array.isArray(itemsArray)) {

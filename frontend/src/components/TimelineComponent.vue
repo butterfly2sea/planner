@@ -12,13 +12,6 @@
     </div>
 
     <div v-else class="timeline-content">
-      <!-- 调试信息 -->
-      <div v-if="showDebugInfo" class="debug-info">
-        <p>Total items: {{ props.items?.length || 0 }}</p>
-        <p>Items with dates: {{ itemsWithDates.length }}</p>
-        <p>Timeline days: {{ Object.keys(timelineData).length }}</p>
-      </div>
-
       <div class="timeline">
         <div
             v-for="(dayData, date) in timelineData"
@@ -164,7 +157,6 @@ import { Edit, Location } from '@element-plus/icons-vue'
 
 interface Props {
   items: TravelItem[]
-  showDebugInfo?: boolean
 }
 
 interface Emits {
@@ -181,7 +173,6 @@ interface TimelineDay {
 }
 
 const props = withDefaults(defineProps<Props>(), {
-  showDebugInfo: false
 })
 
 const emit = defineEmits<Emits>()

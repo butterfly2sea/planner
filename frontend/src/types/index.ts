@@ -182,7 +182,6 @@ export interface MapComponentProps {
     items: TravelItem[]
     selectedItem?: TravelItem | null
     isLocationPicking?: boolean
-    showDebugInfo?: boolean
     onMarkerClick?: (itemId: number) => void
     onMapClick?: (lngLat: { lng: number; lat: number }) => void
     onLocationPicked?: (lngLat: { lng: number; lat: number }) => void
@@ -190,7 +189,6 @@ export interface MapComponentProps {
 
 export interface TimelineComponentProps {
     items: TravelItem[]
-    showDebugInfo?: boolean
     onItemClick?: (itemId: number) => void
     onItemEdit?: (itemId: number) => void
     onShowOnMap?: (item: TravelItem) => void
@@ -198,7 +196,6 @@ export interface TimelineComponentProps {
 
 export interface GanttComponentProps {
     items: TravelItem[]
-    showDebugInfo?: boolean
     onTaskClick?: (task: GanttTask) => void
     onDateChange?: (task: GanttTask, start: Date, end: Date) => void
     onProgressChange?: (task: GanttTask, progress: number) => void
