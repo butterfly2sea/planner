@@ -1,179 +1,416 @@
 <template>
-  <div class="gantt-container">
-    <!-- 空状态 -->
-    <div v-if="!validItems.length" class="empty-state">
-      <el-empty description="没有设置时间的元素" :image-size="100">
-        <template #description>
-          <p>请添加包含开始和结束时间的旅游元素</p>
-        </template>
-      </el-empty>
-    </div>
-
-    <template v-else>
-      <!-- 甘特图 -->
-      <div class="gantt-wrapper">
-        <div ref="ganttContainer" class="gantt-chart" :class="{ 'gantt-loading': isLoading }"></div>
+  <div class="gantt-wrapper">
+    <!-- 控制面板 -->
+    <div class="gantt-controls" v-if="showControls">
+      <div class="view-mode-selector">
+        <label>视图模式:</label>
+        <el-select v-model="currentPrecision" @change="updateView">
+          <el-option
+              v-for="(label, precision) in precisionLabels"
+              :key="precision"
+              :label="label"
+              :value="precision"
+          />
+        </el-select>
       </div>
-    </template>
+    </div>
 
     <!-- 加载状态 -->
-    <div v-if="isLoading" class="loading-overlay">
-      <el-icon class="is-loading">
-        <Loading/>
-      </el-icon>
-      <p>{{ loadingStatus }}</p>
+    <div v-if="isLoading" class="gantt-loading">
+      <el-skeleton :rows="5" animated />
     </div>
 
-    <!-- 错误状态 -->
-    <div v-if="ganttError" class="error-overlay">
-      <el-icon>
-        <WarningFilled/>
-      </el-icon>
-      <h4>甘特图加载失败</h4>
-      <p>{{ ganttError }}</p>
-      <el-button type="primary" @click="initGantt">重试</el-button>
+    <!-- 错误信息 -->
+    <el-alert
+        v-if="ganttError"
+        :title="ganttError"
+        type="error"
+        show-icon
+        @close="ganttError = ''"
+    />
+
+    <!-- Vue Ganttastic 甘特图 -->
+    <div v-if="!isLoading && !ganttError && ganttRows.length > 0" class="gantt-container">
+      <g-gantt-chart
+          :chart-start="chartStart"
+          :chart-end="chartEnd"
+          :precision="currentPrecision"
+          bar-start="startDate"
+          bar-end="endDate"
+          :locale="locale"
+          :width="chartWidth"
+          :push-on-overlap="false"
+          :no-overlap="true"
+          @bar-click="handleBarClick"
+          @bar-dblclick="handleBarDoubleClick"
+          @bar-mouseenter="handleBarMouseEnter"
+          @bar-mouseleave="handleBarMouseLeave"
+          @contextmenu="handleContextMenu"
+          @dragstart-bar="handleDragStart"
+          @drag-bar="handleDrag"
+          @dragend-bar="handleDragEnd"
+      >
+        <g-gantt-row
+            v-for="(row, index) in ganttRows"
+            :key="row.id || index"
+            :label="row.label"
+            :bars="row.bars"
+            :highlight-on-hover="true"
+        />
+      </g-gantt-chart>
+    </div>
+
+    <!-- 空状态 -->
+    <div v-if="!isLoading && !ganttError && ganttRows.length === 0" class="gantt-empty">
+      <el-empty description="暂无甘特图数据" />
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import {computed, nextTick, onMounted, onUnmounted, reactive, ref, watch} from 'vue'
-import {ElMessage} from 'element-plus'
-import {Loading, WarningFilled} from '@element-plus/icons-vue'
+import { ref, computed, watch, onMounted, nextTick } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import dayjs from 'dayjs'
-import type {TravelItem} from '@/types'
+import 'dayjs/locale/zh-cn'
+import duration from 'dayjs/plugin/duration'
+import minMax from 'dayjs/plugin/minMax'
 
-// 定义甘特图任务接口
-interface GanttTask {
-  id: string
+// 配置dayjs
+dayjs.extend(duration)
+dayjs.extend(minMax)
+dayjs.locale('zh-cn')
+
+
+// 类型定义
+interface TravelItem {
+  id: string | number
   name: string
-  start: string
-  end: string
-  progress: number
-  important?: boolean
-  dependencies?: string
-  custom_class?: string
+  location: string
+  start_datetime: string
+  end_datetime: string
+  type?: string
+  description?: string
+  status?: string
+}
+
+interface GanttRow {
+  id: string | number
+  label: string
+  bars: GanttBar[]
+}
+
+interface GanttBar {
+  startDate: string
+  endDate: string
+  ganttBarConfig: {
+    id: string | number
+    label: string
+    style?: Record<string, any>
+    hasHandles?: boolean
+    immobile?: boolean
+    bundle?: string
+  }
   _item?: TravelItem
 }
 
 interface Props {
   items: TravelItem[]
+  showControls?: boolean
+  precision?: string
+  locale?: string
+  width?: string
 }
 
 interface Emits {
-  (e: 'task-click', task: GanttTask): void
-
-  (e: 'date-change', task: GanttTask, start: Date, end: Date): void
-
-  (e: 'progress-change', task: GanttTask, progress: number): void
-
-  (e: 'add-task', task: Partial<TravelItem>): void
-
-  (e: 'remove-task', item: TravelItem): void
+  (e: 'bar-click', bar: GanttBar, item: TravelItem): void
+  (e: 'bar-double-click', bar: GanttBar, item: TravelItem): void
+  (e: 'bar-drag', bar: GanttBar, item: TravelItem, newStart: string, newEnd: string): void
+  (e: 'item-update', item: TravelItem, updates: Partial<TravelItem>): void
 }
 
-const props = withDefaults(defineProps<Props>(), {})
+const props = withDefaults(defineProps<Props>(), {
+  showControls: true,
+  precision: 'hour',
+  locale: 'zh-cn',
+  width: '100%'
+})
 
 const emit = defineEmits<Emits>()
 
 // 响应式数据
-const ganttContainer = ref<HTMLElement>()
-let ganttInstance: any = null
 const isLoading = ref(false)
 const ganttError = ref('')
-const loadingStatus = ref('')
-const currentViewMode = ref('Day')
+const currentPrecision = ref(props.precision)
+const locale = ref(props.locale)
+const chartWidth = ref(props.width)
 
-// 视图模式配置
-const viewModes = ['Hour', 'Quarter Day', 'Half Day', 'Day', 'Week', 'Month', 'Year']
-const viewModeLabels: Record<string, string> = {
-  'Hour': '小时',
-  'Quarter Day': '6小时',
-  'Half Day': '12小时',
-  'Day': '天',
-  'Week': '周',
-  'Month': '月',
-  'Year': '年'
+// 精度标签映射
+const precisionLabels: Record<string, string> = {
+  'hour': '小时',
+  'day': '天',
+  'week': '周',
+  'month': '月'
 }
-
-// 甘特图配置选项
-const options = reactive({
-  view_mode: 'Hour',
-  bar_height: 30,
-  date_format: 'YYYY-MM-DD HH:mm:ss',
-  language: 'zh',
-  padding: 18,
-  readonly: false,
-  show_expected_progress: false,
-  today_button: true,
-  scroll_to: 'start',
-  view_mode_select: false,
-  popup_on: 'click',
-  holidays: {},
-  ignore: [],
-  on_click: (task: any) => {
-    console.log('任务点击:', task)
-    ElMessage.info(`点击了任务: ${task.name}`)
-    emit('task-click', task)
-  },
-  on_date_change: (task: any, start: Date, end: Date) => {
-    console.log('日期变更:', task, start, end)
-    ElMessage.success(`任务 "${task.name}" 日期已更新`)
-    emit('date-change', task, start, end)
-  },
-  on_progress_change: (task: any, progress: number) => {
-    console.log('进度变更:', task, progress)
-    ElMessage.success(`任务 "${task.name}" 进度更新为 ${progress}%`)
-    emit('progress-change', task, progress)
-  },
-  on_double_click: (task: any) => {
-    console.log('双击任务:', task)
-    ElMessage.warning(`双击了任务: ${task.name}`)
-  }
-})
-
 
 // 计算有效项目
 const validItems = computed(() => {
   if (!Array.isArray(props.items)) {
+    console.warn('Items is not an array:', props.items)
     return []
   }
 
   return props.items.filter(item => {
-    return item &&
+    const hasValidDates = item &&
         item.start_datetime &&
         item.end_datetime &&
         dayjs(item.start_datetime).isValid() &&
         dayjs(item.end_datetime).isValid()
+
+    if (!hasValidDates && item) {
+      console.warn('Item with invalid dates:', item.name, item.start_datetime, item.end_datetime)
+    }
+
+    return hasValidDates
   })
 })
 
-// 计算甘特图任务
-const ganttTasks = computed(() => {
-  return convertToGanttTasks(validItems.value)
-})
-
-// 初始化甘特图
-const initGantt = async () => {
-  if (!ganttContainer.value || validItems.value.length === 0) {
-    return
+// 计算图表开始和结束时间
+const chartStart = computed(() => {
+  if (validItems.value.length === 0) {
+    return dayjs().format('YYYY-MM-DD HH:mm:ss')
   }
 
+  const startTimes = validItems.value.map(item => dayjs(item.start_datetime))
+  const earliest = dayjs.min(startTimes)
+
+  // 向前扩展一些时间以提供视觉缓冲
+  return earliest?.subtract(2, 'hour').format('YYYY-MM-DD HH:mm:ss')
+})
+
+const chartEnd = computed(() => {
+  if (validItems.value.length === 0) {
+    return dayjs().add(1, 'day').format('YYYY-MM-DD HH:mm:ss')
+  }
+
+  const endTimes = validItems.value.map(item => dayjs(item.end_datetime))
+  const latest = dayjs.max(endTimes)
+
+  // 向后扩展一些时间以提供视觉缓冲
+  return latest?.add(2, 'hour').format('YYYY-MM-DD HH:mm:ss')
+})
+
+// 计算时间跨度
+const timeSpan = computed(() => {
+  if (validItems.value.length === 0) return 0
+
+  const start = dayjs(chartStart.value)
+  const end = dayjs(chartEnd.value)
+  return end.diff(start, 'day')
+})
+
+// 转换为甘特图行数据
+const ganttRows = computed(() => {
+  // 显式访问 validItems.value 确保依赖追踪
+  const items = validItems.value
+  console.log('computed触发 - 重新计算ganttRows, validItems数量:', items.length)
+
+  if (items.length === 0) {
+    console.log('没有有效项目，返回空数组')
+    return []
+  }
+
+  const rows: GanttRow[] = []
+
+  // 按位置分组 - 使用items而不是validItems.value
+  const locationGroups = groupItemsByLocation(items)
+  console.log('位置分组结果:', Object.keys(locationGroups))
+
+  Object.entries(locationGroups).forEach(([location, itemList]) => {
+    console.log(`处理位置 "${location}":`, itemList.length, '个项目')
+
+    const bars: GanttBar[] = itemList
+      .map(item => {
+        try {
+          return convertToGanttBar(item)
+        } catch (error) {
+          console.error('转换项目失败:', item, error)
+          return null
+        }
+      })
+      .filter((bar): bar is GanttBar => bar !== null)
+
+    if (bars.length > 0) {
+      rows.push({
+        id: `location-${location}`,
+        label: location || '未知位置',
+        bars
+      })
+      console.log(`添加行: "${location}", ${bars.length}个条目`)
+    }
+  })
+
+  console.log('最终生成', rows.length, '行数据')
+  return rows
+})
+
+
+// 按位置分组项目
+function groupItemsByLocation(items: TravelItem[]): Record<string, TravelItem[]> {
+  return items.reduce((groups, item) => {
+    const location = item.location || '其他'
+    if (!groups[location]) {
+      groups[location] = []
+    }
+    groups[location].push(item)
+    return groups
+  }, {} as Record<string, TravelItem[]>)
+}
+
+// 转换单个项目为甘特条
+function convertToGanttBar(item: TravelItem): GanttBar {
+  const startDate = dayjs(item.start_datetime)
+  const endDate = dayjs(item.end_datetime)
+
+  // 确保结束时间晚于开始时间
+  const adjustedEndDate = endDate.isSame(startDate) || endDate.isBefore(startDate)
+      ? startDate.add(1, 'hour')
+      : endDate
+
+  return {
+    startDate: startDate.format('YYYY-MM-DD HH:mm:ss'),
+    endDate: adjustedEndDate.format('YYYY-MM-DD HH:mm:ss'),
+    ganttBarConfig: {
+      id: item.id,
+      label: item.name,
+      hasHandles: true,
+      style: getItemStyle(item)
+    },
+    _item: item
+  }
+}
+
+// 获取项目样式
+function getItemStyle(item: TravelItem): Record<string, any> {
+  const typeColors: Record<string, string> = {
+    'attraction': '#4CAF50',
+    'restaurant': '#FF9800',
+    'accommodation': '#2196F3',
+    'transportation': '#9C27B0',
+    'activity': '#E91E63',
+    'shopping': '#00BCD4'
+  }
+
+  const baseStyle = {
+    background: typeColors[item.type || 'activity'] || '#607D8B',
+    borderRadius: '4px',
+    color: 'white',
+    fontSize: '12px',
+    fontWeight: '500'
+  }
+
+  // 根据状态添加特殊样式
+  if (item.status === 'completed') {
+    baseStyle.background = '#4CAF50'
+    // baseStyle['opacity'] = '0.8'
+  } else if (item.status === 'cancelled') {
+    baseStyle.background = '#F44336'
+    // baseStyle['textDecoration'] = 'line-through'
+  }
+
+  return baseStyle
+}
+
+// 事件处理函数
+function handleBarClick(bar: any, event: Event) {
+  const ganttBar = bar as GanttBar
+  if (ganttBar._item) {
+    emit('bar-click', ganttBar, ganttBar._item)
+    ElMessage.info(`点击了项目: ${ganttBar._item.name}`)
+  }
+}
+
+function handleBarDoubleClick(bar: any, event: Event) {
+  const ganttBar = bar as GanttBar
+  if (ganttBar._item) {
+    emit('bar-double-click', ganttBar, ganttBar._item)
+    ElMessage.info(`双击了项目: ${ganttBar._item.name}`)
+  }
+}
+
+function handleBarMouseEnter(bar: any, event: Event) {
+  // 可以在这里添加鼠标悬停效果
+}
+
+function handleBarMouseLeave(bar: any, event: Event) {
+  // 清理鼠标悬停效果
+}
+
+function handleContextMenu(bar: any, event: Event) {
+  event.preventDefault()
+  const ganttBar = bar as GanttBar
+  if (ganttBar._item) {
+    ElMessageBox.confirm(
+        `确定要删除项目 "${ganttBar._item.name}" 吗？`,
+        '确认删除',
+        {
+          confirmButtonText: '删除',
+          cancelButtonText: '取消',
+          type: 'warning',
+        }
+    ).then(() => {
+      ElMessage.success('项目已删除')
+      // 这里应该调用删除API
+    }).catch(() => {
+      ElMessage.info('已取消删除')
+    })
+  }
+}
+
+function handleDragStart(bar: any, event: Event) {
+  const ganttBar = bar as GanttBar
+  if (ganttBar._item) {
+    console.log('开始拖拽:', ganttBar._item.name)
+  }
+}
+
+function handleDrag(bar: any, event: Event) {
+  // 拖拽过程中的处理
+}
+
+function handleDragEnd(bar: any, movedBars: any[]) {
+  const ganttBar = bar as GanttBar
+  if (ganttBar._item && movedBars.length > 0) {
+    const movedBar = movedBars[0]
+    const newStart = movedBar.startDate
+    const newEnd = movedBar.endDate
+
+    emit('bar-drag', ganttBar, ganttBar._item, newStart, newEnd)
+    emit('item-update', ganttBar._item, {
+      start_datetime: newStart,
+      end_datetime: newEnd
+    })
+
+    ElMessage.success(`项目 "${ganttBar._item.name}" 时间已更新`)
+  }
+}
+
+function updateView() {
+  ElMessage.info(`视图模式已切换为: ${precisionLabels[currentPrecision.value]}`)
+}
+
+// 初始化
+onMounted(async () => {
   isLoading.value = true
-  ganttError.value = ''
-  loadingStatus.value = '正在加载甘特图组件...'
 
   try {
-    // 尝试从CDN加载Frappe Gantt
-    await loadGanttFromCDN()
+    await nextTick()
 
-    const GanttClass = (window as any).Gantt
-    if (!GanttClass) {
-      throw new Error('无法加载甘特图库')
+    if (validItems.value.length === 0) {
+      ganttError.value = '没有有效的甘特图数据'
+      return
     }
 
-    loadingStatus.value = '正在创建甘特图...'
-    await createGanttChart(GanttClass)
+    console.log(`甘特图初始化成功，包含 ${ganttRows.value.length} 行数据`)
 
   } catch (error) {
     console.error('甘特图初始化失败:', error)
@@ -181,292 +418,108 @@ const initGantt = async () => {
   } finally {
     isLoading.value = false
   }
-}
-
-// 从CDN加载甘特图库
-const loadGanttFromCDN = (): Promise<void> => {
-  return new Promise((resolve, reject) => {
-    // 检查是否已经加载
-    if ((window as any).Gantt) {
-      resolve()
-      return
-    }
-
-    // 加载CSS
-    const link = document.createElement('link')
-    link.rel = 'stylesheet'
-    link.href = 'https://cdn.jsdelivr.net/npm/frappe-gantt/dist/frappe-gantt.css'
-    document.head.appendChild(link)
-
-    // 加载JS
-    const script = document.createElement('script')
-    script.src = 'https://cdn.jsdelivr.net/npm/frappe-gantt/dist/frappe-gantt.umd.js'
-    script.onload = () => resolve()
-    script.onerror = () => reject(new Error('CDN加载失败'))
-    document.head.appendChild(script)
-
-    // 超时处理
-    setTimeout(() => reject(new Error('CDN加载超时')), 10000)
-  })
-}
-
-// 创建甘特图
-const createGanttChart = async (GanttClass: any) => {
-  if (!ganttContainer.value) return
-
-  // 清空容器
-  ganttContainer.value.innerHTML = ''
-
-  const tasks = ganttTasks.value
-  if (tasks.length === 0) {
-    return
-  }
-
-  try {
-    // 创建甘特图实例
-    ganttInstance = new GanttClass(ganttContainer.value, tasks, {
-      ...options,
-      view_mode: currentViewMode.value
-    })
-  } catch (error) {
-    console.error('甘特图实例创建失败:', error)
-    throw error
-  }
-}
-
-// 更新甘特图配置
-const updateGanttOptions = () => {
-  if (ganttInstance && ganttInstance.update_options) {
-    try {
-      ganttInstance.update_options(options)
-    } catch (error) {
-      console.error('更新配置失败:', error)
-    }
-  }
-}
-
-// 转换为甘特图任务格式
-const convertToGanttTasks = (items: TravelItem[]): GanttTask[] => {
-  const tasks: GanttTask[] = []
-
-  items.forEach((item) => {
-    if (!item.start_datetime || !item.end_datetime) return
-
-    const startDate = dayjs(item.start_datetime)
-    const endDate = dayjs(item.end_datetime)
-
-    if (!startDate.isValid() || !endDate.isValid()) return
-
-    // 确保结束时间晚于开始时间
-    const adjustedEndDate = endDate.isSame(startDate) || endDate.isBefore(startDate)
-        ? startDate.add(1, 'hour')
-        : endDate
-
-    // 计算进度
-    let progress = 0
-    if (item.status === 'completed') {
-      progress = 100
-    } else if (item.status === 'in_progress') {
-      progress = 50
-    }
-
-    const task: GanttTask = {
-      id: `task_${item.id}`,
-      name: item.name,
-      start: startDate.toISOString(),
-      end: adjustedEndDate.toISOString(),
-      progress,
-      custom_class: `gantt-task-${item.item_type || 'other'}`,
-      _item: {
-        ...item,
-        name: item.name,
-        item_type: item.item_type || 'other'
-      }
-    }
-
-    tasks.push(task)
-  })
-
-  return tasks
-}
-
-const getTypeConfig = (type: string) => {
-  const configs = {
-    accommodation: {name: '住宿', icon: 'fa-bed', color: '#805ad5'},
-    transport: {name: '交通', icon: 'fa-plane', color: '#3182ce'},
-    attraction: {name: '景点', icon: 'fa-mountain', color: '#48bb78'},
-    photo_spot: {name: '拍照点', icon: 'fa-camera', color: '#ed8936'},
-    rest_area: {name: '休息点', icon: 'fa-coffee', color: '#38b2ac'},
-    checkpoint: {name: '检查站', icon: 'fa-shield-alt', color: '#e53e3e'},
-    other: {name: '其他', icon: 'fa-ellipsis-h', color: '#718096'}
-  }
-
-  return configs[type as keyof typeof configs] || configs.other
-}
-
-// 生命周期
-onMounted(async () => {
-  await nextTick()
-  if (validItems.value.length > 0) {
-    await initGantt()
-  }
 })
 
 // 监听数据变化
-watch(() => validItems.value, async () => {
-  if (validItems.value.length > 0) {
-    await initGantt()
-  } else if (ganttInstance) {
-    if (ganttContainer.value) {
-      ganttContainer.value.innerHTML = ''
-    }
-    ganttInstance = null
-  }
-}, {deep: true})
-
-// 组件卸载时清理
-onUnmounted(() => {
-  if (ganttInstance && ganttInstance.destroy) {
-    try {
-      ganttInstance.destroy()
-    } catch (error) {
-      console.warn('甘特图销毁失败:', error)
-    }
-  }
-  ganttInstance = null
-})
-
-// 暴露方法给父组件
-defineExpose({
-  initGantt
-})
+watch(
+    () => validItems.value,
+    (newItems) => {
+      console.log('甘特图数据更新:', newItems.length, '个有效项目')
+    },
+    { deep: true }
+)
 </script>
 
-<style lang="scss" scoped>
-.gantt-container {
+<style scoped lang="scss">
+.gantt-wrapper {
+  width: 100%;
   height: 100%;
   display: flex;
   flex-direction: column;
-  background: #f8f9fa;
+}
+
+.gantt-controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px;
+  background: var(--el-bg-color-page);
   border-radius: 8px;
+  margin-bottom: 16px;
+
+  .view-mode-selector {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+
+    label {
+      font-weight: 500;
+      color: var(--el-text-color-primary);
+    }
+  }
+
+  .gantt-stats {
+    display: flex;
+    gap: 16px;
+    font-size: 14px;
+    color: var(--el-text-color-regular);
+
+    span {
+      padding: 4px 8px;
+      background: var(--el-fill-color-light);
+      border-radius: 4px;
+    }
+  }
+}
+
+.gantt-loading {
+  padding: 20px;
+  border-radius: 8px;
+  background: white;
+}
+
+.gantt-container {
+  flex: 1;
+  background: white;
+  border-radius: 8px;
+  padding: 16px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
   overflow: hidden;
 }
 
-.empty-state {
+.gantt-empty {
   display: flex;
-  align-items: center;
   justify-content: center;
-  height: 100%;
+  align-items: center;
   min-height: 300px;
-}
-
-.gantt-wrapper {
-  height: 100%;
-  display: flex;
   background: white;
   border-radius: 8px;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
-  padding: 20px;
-  margin-bottom: 20px;
+}
 
-  h3 {
-    margin: 0 0 20px 0;
-    color: #303133;
+// Vue Ganttastic 样式定制
+:deep(.g-gantt-chart) {
+  font-family: var(--el-font-family);
+}
+
+:deep(.g-gantt-row-label) {
+  font-weight: 500;
+  color: var(--el-text-color-primary);
+  background: var(--el-fill-color-lighter);
+  border-right: 1px solid var(--el-border-color-light);
+}
+
+:deep(.g-gantt-bar) {
+  transition: all 0.2s ease;
+
+  &:hover {
+    filter: brightness(1.1);
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
   }
 }
 
-.gantt-chart {
-  min-height: 400px;
-  border: 1px solid #e4e7ed;
-  border-radius: 6px;
-  position: relative;
-
-  &.gantt-loading {
-    opacity: 0.6;
-  }
-}
-
-.loading-overlay {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(255, 255, 255, 0.8);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  z-index: 10;
-
-  .el-icon {
-    font-size: 32px;
-    color: #409eff;
-    margin-bottom: 10px;
-  }
-
-  p {
-    color: #606266;
-    margin: 0;
-  }
-}
-
-.error-overlay {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(255, 255, 255, 0.95);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  z-index: 10;
-
-  .el-icon {
-    font-size: 32px;
-    color: #f56c6c;
-    margin-bottom: 10px;
-  }
-
-  h4 {
-    color: #303133;
-    margin: 0 0 5px 0;
-  }
-
-  p {
-    color: #909399;
-    margin: 0 0 15px 0;
-  }
-}
-
-// 甘特图任务类型样式
-:deep(.gantt-task-accommodation) {
-  fill: #805ad5 !important;
-}
-
-:deep(.gantt-task-transport) {
-  fill: #3182ce !important;
-}
-
-:deep(.gantt-task-attraction) {
-  fill: #48bb78 !important;
-}
-
-:deep(.gantt-task-photo_spot) {
-  fill: #ed8936 !important;
-}
-
-:deep(.gantt-task-rest_area) {
-  fill: #38b2ac !important;
-}
-
-:deep(.gantt-task-checkpoint) {
-  fill: #e53e3e !important;
-}
-
-:deep(.gantt-task-other) {
-  fill: #718096 !important;
+:deep(.g-gantt-time-axis) {
+  background: var(--el-fill-color-page);
+  border-bottom: 1px solid var(--el-border-color-light);
 }
 </style>

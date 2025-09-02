@@ -150,10 +150,15 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import {computed} from 'vue'
 import dayjs from 'dayjs'
-import type { TravelItem, TypeConfig } from '@/types'
-import { Edit, Location } from '@element-plus/icons-vue'
+import utc from 'dayjs/plugin/utc'
+import timezone from 'dayjs/plugin/timezone'
+import type {TravelItem, TypeConfig} from '@/types'
+import {Edit, Location} from '@element-plus/icons-vue'
+
+dayjs.extend(utc);
+dayjs.extend(timezone);
 
 interface Props {
   items: TravelItem[]
@@ -161,7 +166,9 @@ interface Props {
 
 interface Emits {
   (e: 'item-click', itemId: number): void
+
   (e: 'item-edit', itemId: number): void
+
   (e: 'show-on-map', item: TravelItem): void
 }
 
@@ -172,19 +179,18 @@ interface TimelineDay {
   completionRate: number
 }
 
-const props = withDefaults(defineProps<Props>(), {
-})
+const props = withDefaults(defineProps<Props>(), {})
 
 const emit = defineEmits<Emits>()
 
 const typeConfigs: Record<string, TypeConfig> = {
-  accommodation: { name: '住宿', icon: 'fa-bed', color: '#805ad5' },
-  transport: { name: '交通', icon: 'fa-plane', color: '#3182ce' },
-  attraction: { name: '景点', icon: 'fa-mountain', color: '#48bb78' },
-  photo_spot: { name: '拍照点', icon: 'fa-camera', color: '#ed8936' },
-  rest_area: { name: '休息点', icon: 'fa-coffee', color: '#38b2ac' },
-  checkpoint: { name: '检查站', icon: 'fa-shield-alt', color: '#e53e3e' },
-  other: { name: '其他', icon: 'fa-ellipsis-h', color: '#718096' }
+  accommodation: {name: '住宿', icon: 'fa-bed', color: '#805ad5'},
+  transport: {name: '交通', icon: 'fa-plane', color: '#3182ce'},
+  attraction: {name: '景点', icon: 'fa-mountain', color: '#48bb78'},
+  photo_spot: {name: '拍照点', icon: 'fa-camera', color: '#ed8936'},
+  rest_area: {name: '休息点', icon: 'fa-coffee', color: '#38b2ac'},
+  checkpoint: {name: '检查站', icon: 'fa-shield-alt', color: '#e53e3e'},
+  other: {name: '其他', icon: 'fa-ellipsis-h', color: '#718096'}
 }
 
 // 获取有日期的项目
@@ -274,7 +280,7 @@ const formatDate = (dateStr: string): string => {
 const formatTime = (datetime: string | null | undefined): string => {
   if (!datetime) return ''
 
-  const parsed = dayjs(datetime)
+  const parsed = dayjs.tz(datetime, "Asia/Shanghai")
   if (!parsed.isValid()) return ''
 
   return parsed.format('HH:mm')

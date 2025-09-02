@@ -13,6 +13,7 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 
 // 自定义样式
 import './styles/index.scss'
+import ganttastic from "@infectoone/vue-ganttastic";
 
 const app = createApp(App)
 const pinia = createPinia()
@@ -25,5 +26,6 @@ for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
 app.use(pinia)
 app.use(router)
 app.use(ElementPlus)
+app.use(ganttastic)
 
 app.mount('#app')
