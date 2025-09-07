@@ -224,26 +224,26 @@ const validItems = computed(() => {
 // 计算图表开始和结束时间
 const chartStart = computed(() => {
   if (validItems.value.length === 0) {
-    return dayjs().format('YYYY-MM-DD HH:mm:ss')
+    return dayjs().format('YYYY-MM-DD HH:mm')
   }
 
   const startTimes = validItems.value.map(item => dayjs(item.start_datetime))
   const earliest = dayjs.min(startTimes)
 
   // 向前扩展一些时间以提供视觉缓冲
-  return earliest?.subtract(2, 'hour').format('YYYY-MM-DD HH:mm:ss')
+  return earliest?.subtract(2, 'hour').format('YYYY-MM-DD HH:mm') || dayjs().format('YYYY-MM-DD HH:mm')
 })
 
 const chartEnd = computed(() => {
   if (validItems.value.length === 0) {
-    return dayjs().add(1, 'day').format('YYYY-MM-DD HH:mm:ss')
+    return dayjs().add(1, 'day').format('YYYY-MM-DD HH:mm')
   }
 
   const endTimes = validItems.value.map(item => dayjs(item.end_datetime))
   const latest = dayjs.max(endTimes)
 
   // 向后扩展一些时间以提供视觉缓冲
-  return latest?.add(2, 'hour').format('YYYY-MM-DD HH:mm:ss')
+  return latest?.add(2, 'hour').format('YYYY-MM-DD HH:mm') || dayjs().add(1, 'day').format('YYYY-MM-DD HH:mm')
 })
 
 // 计算时间跨度
