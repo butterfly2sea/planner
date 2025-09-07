@@ -26,6 +26,7 @@
         :title="ganttError"
         type="error"
         show-icon
+        :closable="true"
         @close="ganttError = ''"
     />
 
@@ -62,7 +63,15 @@
 
     <!-- 空状态 -->
     <div v-if="!isLoading && !ganttError && ganttRows.length === 0" class="gantt-empty">
-      <el-empty description="暂无甘特图数据" />
+      <el-empty description="暂无甘特图数据">
+        <template #description>
+          <p v-if="validItems.length === 0">请添加包含开始和结束时间的旅游元素</p>
+          <p v-else>数据处理中，请稍候...</p>
+        </template>
+        <el-button v-if="validItems.length > 0" type="primary" @click="retryInitialization">
+          重试加载
+        </el-button>
+      </el-empty>
     </div>
   </div>
 </template>
@@ -80,17 +89,19 @@ dayjs.extend(duration)
 dayjs.extend(minMax)
 dayjs.locale('zh-cn')
 
-
 // 类型定义
 interface TravelItem {
   id: string | number
   name: string
-  location: string
+  item_type: string
   start_datetime: string
   end_datetime: string
   type?: string
   description?: string
   status?: string
+  cost?: number
+  latitude?: number
+  longitude?: number
 }
 
 interface GanttRow {
@@ -152,6 +163,17 @@ const precisionLabels: Record<string, string> = {
   'month': '月'
 }
 
+// 类型配置
+const typeConfigs: Record<string, { name: string; color: string; icon: string }> = {
+  accommodation: { name: '住宿', color: '#805ad5', icon: 'fa-bed' },
+  transport: { name: '交通', color: '#3182ce', icon: 'fa-plane' },
+  attraction: { name: '景点', color: '#48bb78', icon: 'fa-mountain' },
+  photo_spot: { name: '拍照点', color: '#ed8936', icon: 'fa-camera' },
+  rest_area: { name: '休息点', color: '#38b2ac', icon: 'fa-coffee' },
+  checkpoint: { name: '检查站', color: '#e53e3e', icon: 'fa-shield-alt' },
+  other: { name: '其他', color: '#718096', icon: 'fa-ellipsis-h' }
+}
+
 // 计算有效项目
 const validItems = computed(() => {
   if (!Array.isArray(props.items)) {
@@ -159,19 +181,44 @@ const validItems = computed(() => {
     return []
   }
 
-  return props.items.filter(item => {
-    const hasValidDates = item &&
-        item.start_datetime &&
+  const filtered = props.items.filter(item => {
+    // 基本验证
+    if (!item) {
+      console.warn('Null item found')
+      return false
+    }
+
+    // 时间验证
+    const hasValidDates = item.start_datetime &&
         item.end_datetime &&
         dayjs(item.start_datetime).isValid() &&
         dayjs(item.end_datetime).isValid()
 
-    if (!hasValidDates && item) {
-      console.warn('Item with invalid dates:', item.name, item.start_datetime, item.end_datetime)
+    if (!hasValidDates) {
+      console.warn('Item with invalid dates:', {
+        name: item.name,
+        start: item.start_datetime,
+        end: item.end_datetime
+      })
+      return false
     }
 
-    return hasValidDates
+    // 确保结束时间不早于开始时间
+    const startDate = dayjs(item.start_datetime)
+    const endDate = dayjs(item.end_datetime)
+
+    if (endDate.isBefore(startDate)) {
+      console.warn('Item with end before start:', {
+        name: item.name,
+        start: item.start_datetime,
+        end: item.end_datetime
+      })
+      return false
+    }
+
+    return true
   })
+  return filtered
 })
 
 // 计算图表开始和结束时间
@@ -205,165 +252,166 @@ const timeSpan = computed(() => {
 
   const start = dayjs(chartStart.value)
   const end = dayjs(chartEnd.value)
-  return end.diff(start, 'day')
+  return Math.ceil(end.diff(start, 'day', true))
 })
 
 // 转换为甘特图行数据
 const ganttRows = computed(() => {
-  // 显式访问 validItems.value 确保依赖追踪
   const items = validItems.value
-  console.log('computed触发 - 重新计算ganttRows, validItems数量:', items.length)
+  console.log('Computing ganttRows, valid items:', items.length)
 
   if (items.length === 0) {
-    console.log('没有有效项目，返回空数组')
+    console.log('No valid items, returning empty rows')
     return []
   }
 
-  const rows: GanttRow[] = []
+  try {
+    const rows: GanttRow[] = []
 
-  // 按位置分组 - 使用items而不是validItems.value
-  const locationGroups = groupItemsByLocation(items)
-  console.log('位置分组结果:', Object.keys(locationGroups))
+    // 按项目类型分组
+    const typeGroups = groupItemsByType(items)
+    console.log('Type groups:', Object.keys(typeGroups))
 
-  Object.entries(locationGroups).forEach(([location, itemList]) => {
-    console.log(`处理位置 "${location}":`, itemList.length, '个项目')
+    // 按预定义的类型顺序显示
+    const typeOrder = ['accommodation', 'transport', 'attraction', 'photo_spot', 'rest_area', 'checkpoint', 'other']
 
-    const bars: GanttBar[] = itemList
-      .map(item => {
+    typeOrder.forEach(type => {
+      const itemList = typeGroups[type]
+      if (!itemList || itemList.length === 0) return
+
+      console.log(`Processing type "${type}":`, itemList.length, 'items')
+
+      const bars: GanttBar[] = []
+
+      itemList.forEach(item => {
         try {
-          return convertToGanttBar(item)
+          const bar = convertToGanttBar(item)
+          if (bar) {
+            bars.push(bar)
+            console.log(`Created bar for ${item.name}:`, {
+              start: bar.startDate,
+              end: bar.endDate,
+              label: bar.ganttBarConfig.label
+            })
+          }
         } catch (error) {
-          console.error('转换项目失败:', item, error)
-          return null
+          console.error('Failed to convert item to gantt bar:', item.name, error)
         }
       })
-      .filter((bar): bar is GanttBar => bar !== null)
 
-    if (bars.length > 0) {
-      rows.push({
-        id: `location-${location}`,
-        label: location || '未知位置',
-        bars
-      })
-      console.log(`添加行: "${location}", ${bars.length}个条目`)
-    }
-  })
+      if (bars.length > 0) {
+        const config = typeConfigs[type] || typeConfigs.other
+        rows.push({
+          id: `type-${type}`,
+          label: `${config.name} (${bars.length})`,
+          bars
+        })
+        console.log(`Added row: "${config.name}", ${bars.length} bars`)
+      }
+    })
 
-  console.log('最终生成', rows.length, '行数据')
-  return rows
+    console.log('Final gantt rows:', rows.length)
+    return rows
+  } catch (error) {
+    console.error('Error computing gantt rows:', error)
+    ganttError.value = '甘特图数据处理失败: ' + (error instanceof Error ? error.message : '未知错误')
+    return []
+  }
 })
 
-
-// 按位置分组项目
-function groupItemsByLocation(items: TravelItem[]): Record<string, TravelItem[]> {
+// 按项目类型分组
+function groupItemsByType(items: TravelItem[]): Record<string, TravelItem[]> {
   return items.reduce((groups, item) => {
-    const location = item.location || '其他'
-    if (!groups[location]) {
-      groups[location] = []
+    const itemType = item.item_type || item.type || 'other'
+    if (!groups[itemType]) {
+      groups[itemType] = []
     }
-    groups[location].push(item)
+    groups[itemType].push(item)
     return groups
   }, {} as Record<string, TravelItem[]>)
 }
 
 // 转换单个项目为甘特条
-function convertToGanttBar(item: TravelItem): GanttBar {
-  const startDate = dayjs(item.start_datetime)
-  const endDate = dayjs(item.end_datetime)
+function convertToGanttBar(item: TravelItem): GanttBar | null {
+  try {
+    const startDate = dayjs.tz(item.start_datetime, "Asia/Shanghai")
+    const endDate = dayjs.tz(item.end_datetime, "Asia/Shanghai")
 
-  // 确保结束时间晚于开始时间
-  const adjustedEndDate = endDate.isSame(startDate) || endDate.isBefore(startDate)
-      ? startDate.add(1, 'hour')
-      : endDate
+    if (!startDate.isValid() || !endDate.isValid()) {
+      throw new Error(`Invalid dates for item ${item.name}: start=${item.start_datetime}, end=${item.end_datetime}`)
+    }
 
-  return {
-    startDate: startDate.format('YYYY-MM-DD HH:mm:ss'),
-    endDate: adjustedEndDate.format('YYYY-MM-DD HH:mm:ss'),
-    ganttBarConfig: {
-      id: item.id,
-      label: item.name,
-      hasHandles: true,
-      style: getItemStyle(item)
-    },
-    _item: item
+    // 确保结束时间晚于开始时间，最少1小时
+    const adjustedEndDate = endDate.isSame(startDate) || endDate.isBefore(startDate)
+        ? startDate.add(1, 'hour')
+        : endDate
+
+    // 获取类型配置
+    const itemType = item.item_type || item.type || 'other'
+    const config = typeConfigs[itemType] || typeConfigs.other
+
+    // 使用Vue Ganttastic要求的日期格式：YYYY-MM-DD HH:mm
+    const bar: GanttBar = {
+      startDate: startDate.format('YYYY-MM-DD HH:mm'),
+      endDate: adjustedEndDate.format('YYYY-MM-DD HH:mm'),
+      ganttBarConfig: {
+        id: String(item.id),
+        label: item.name,
+        style: {
+          backgroundColor: config.color,
+          color: 'white',
+          borderRadius: '4px',
+          border: '1px solid rgba(255,255,255,0.3)'
+        },
+        hasHandles: true,
+        immobile: false,
+        bundle: itemType
+      },
+      _item: item
+    }
+
+    console.log(`Created gantt bar for ${item.name}:`, {
+      start: bar.startDate,
+      end: bar.endDate,
+      duration: adjustedEndDate.diff(startDate, 'hour'),
+      type: itemType
+    })
+
+    return bar
+  } catch (error) {
+    console.error('Error converting item to gantt bar:', item.name, error)
+    return null
   }
-}
-
-// 获取项目样式
-function getItemStyle(item: TravelItem): Record<string, any> {
-  const typeColors: Record<string, string> = {
-    'attraction': '#4CAF50',
-    'restaurant': '#FF9800',
-    'accommodation': '#2196F3',
-    'transportation': '#9C27B0',
-    'activity': '#E91E63',
-    'shopping': '#00BCD4'
-  }
-
-  const baseStyle = {
-    background: typeColors[item.type || 'activity'] || '#607D8B',
-    borderRadius: '4px',
-    color: 'white',
-    fontSize: '12px',
-    fontWeight: '500'
-  }
-
-  // 根据状态添加特殊样式
-  if (item.status === 'completed') {
-    baseStyle.background = '#4CAF50'
-    // baseStyle['opacity'] = '0.8'
-  } else if (item.status === 'cancelled') {
-    baseStyle.background = '#F44336'
-    // baseStyle['textDecoration'] = 'line-through'
-  }
-
-  return baseStyle
 }
 
 // 事件处理函数
 function handleBarClick(bar: any, event: Event) {
   const ganttBar = bar as GanttBar
   if (ganttBar._item) {
+    console.log('Bar clicked:', ganttBar._item.name)
     emit('bar-click', ganttBar, ganttBar._item)
-    ElMessage.info(`点击了项目: ${ganttBar._item.name}`)
   }
 }
 
 function handleBarDoubleClick(bar: any, event: Event) {
   const ganttBar = bar as GanttBar
   if (ganttBar._item) {
+    console.log('Bar double clicked:', ganttBar._item.name)
     emit('bar-double-click', ganttBar, ganttBar._item)
-    ElMessage.info(`双击了项目: ${ganttBar._item.name}`)
   }
 }
 
 function handleBarMouseEnter(bar: any, event: Event) {
-  // 可以在这里添加鼠标悬停效果
+  // 鼠标悬停处理
 }
 
 function handleBarMouseLeave(bar: any, event: Event) {
-  // 清理鼠标悬停效果
+  // 鼠标离开处理
 }
 
 function handleContextMenu(bar: any, event: Event) {
   event.preventDefault()
-  const ganttBar = bar as GanttBar
-  if (ganttBar._item) {
-    ElMessageBox.confirm(
-        `确定要删除项目 "${ganttBar._item.name}" 吗？`,
-        '确认删除',
-        {
-          confirmButtonText: '删除',
-          cancelButtonText: '取消',
-          type: 'warning',
-        }
-    ).then(() => {
-      ElMessage.success('项目已删除')
-      // 这里应该调用删除API
-    }).catch(() => {
-      ElMessage.info('已取消删除')
-    })
-  }
+  // 右键菜单处理
 }
 
 function handleDragStart(bar: any, event: Event) {
@@ -398,6 +446,19 @@ function updateView() {
   ElMessage.info(`视图模式已切换为: ${precisionLabels[currentPrecision.value]}`)
 }
 
+function retryInitialization() {
+  ganttError.value = ''
+  console.log('Retrying gantt initialization...')
+  // 强制重新计算
+  nextTick(() => {
+    if (validItems.value.length > 0) {
+      console.log('Retry: valid items available, should show gantt')
+    } else {
+      console.log('Retry: no valid items available')
+    }
+  })
+}
+
 // 初始化
 onMounted(async () => {
   isLoading.value = true
@@ -405,12 +466,16 @@ onMounted(async () => {
   try {
     await nextTick()
 
-    if (validItems.value.length === 0) {
-      ganttError.value = '没有有效的甘特图数据'
-      return
-    }
+    console.log('GanttComponent mounted, items:', props.items?.length || 0)
+    console.log('Valid items:', validItems.value.length)
+    console.log('Gantt rows:', ganttRows.value.length)
 
-    console.log(`甘特图初始化成功，包含 ${ganttRows.value.length} 行数据`)
+    // 移除之前的错误检查，让组件正常渲染
+    if (validItems.value.length === 0) {
+      console.log('No valid items on mount, but component will render empty state')
+    } else {
+      console.log(`甘特图初始化成功，包含 ${ganttRows.value.length} 行数据`)
+    }
 
   } catch (error) {
     console.error('甘特图初始化失败:', error)
@@ -422,9 +487,29 @@ onMounted(async () => {
 
 // 监听数据变化
 watch(
+    () => props.items,
+    (newItems) => {
+      console.log('Props items changed:', newItems?.length || 0)
+    },
+    { deep: true, immediate: true }
+)
+
+watch(
     () => validItems.value,
     (newItems) => {
-      console.log('甘特图数据更新:', newItems.length, '个有效项目')
+      console.log('Valid items updated:', newItems.length, '个有效项目')
+      if (newItems.length > 0 && ganttError.value) {
+        // 如果有了有效数据但仍有错误信息，清除错误
+        ganttError.value = ''
+      }
+    },
+    { deep: true }
+)
+
+watch(
+    () => ganttRows.value,
+    (newRows) => {
+      console.log('Gantt rows updated:', newRows.length, '行')
     },
     { deep: true }
 )
@@ -436,6 +521,7 @@ watch(
   height: 100%;
   display: flex;
   flex-direction: column;
+  gap: 16px;
 }
 
 .gantt-controls {
@@ -445,7 +531,6 @@ watch(
   padding: 16px;
   background: var(--el-bg-color-page);
   border-radius: 8px;
-  margin-bottom: 16px;
 
   .view-mode-selector {
     display: flex;
@@ -485,6 +570,7 @@ watch(
   padding: 16px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
   overflow: hidden;
+  min-height: 300px;
 }
 
 .gantt-empty {
@@ -494,6 +580,31 @@ watch(
   min-height: 300px;
   background: white;
   border-radius: 8px;
+}
+
+.debug-panel {
+  background: var(--el-fill-color-lighter);
+  border-radius: 8px;
+  overflow: hidden;
+
+  .debug-content {
+    padding: 16px;
+    font-size: 14px;
+    line-height: 1.5;
+
+    p {
+      margin: 8px 0;
+    }
+
+    ul {
+      margin: 8px 0;
+      padding-left: 20px;
+    }
+
+    li {
+      margin: 4px 0;
+    }
+  }
 }
 
 // Vue Ganttastic 样式定制
@@ -506,10 +617,12 @@ watch(
   color: var(--el-text-color-primary);
   background: var(--el-fill-color-lighter);
   border-right: 1px solid var(--el-border-color-light);
+  padding: 8px 12px;
 }
 
 :deep(.g-gantt-bar) {
   transition: all 0.2s ease;
+  cursor: pointer;
 
   &:hover {
     filter: brightness(1.1);
@@ -521,5 +634,10 @@ watch(
 :deep(.g-gantt-time-axis) {
   background: var(--el-fill-color-page);
   border-bottom: 1px solid var(--el-border-color-light);
+}
+
+:deep(.g-gantt-rows-container) {
+  border: 1px solid var(--el-border-color-light);
+  border-radius: 4px;
 }
 </style>

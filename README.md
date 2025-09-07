@@ -49,6 +49,7 @@ planner/
 
 ### 0. 快速环境
 ```bash
+cd /mnt/c/Users/h/Documents/GitHub/planner/
 docker rm -f pg rds
 docker run -p 5432:5432 -d -e POSTGRES_PASSWORD=password -v $(pwd):/data --name pg postgres
 docker run -p 6379:6379 -d --name rds redis
